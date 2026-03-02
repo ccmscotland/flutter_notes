@@ -62,20 +62,20 @@ class SyncState {
 }
 
 final syncStateProvider =
-    StateNotifierProvider<SyncStateNotifier, SyncState>(
-  (ref) => SyncStateNotifier(ref),
+    NotifierProvider<SyncStateNotifier, SyncState>(
+  SyncStateNotifier.new,
 );
 
-class SyncStateNotifier extends StateNotifier<SyncState> {
-  final Ref _ref;
-
-  SyncStateNotifier(this._ref) : super(const SyncState()) {
+class SyncStateNotifier extends Notifier<SyncState> {
+  @override
+  SyncState build() {
     _checkSignInStatus();
+    return const SyncState();
   }
 
   void _checkSignInStatus() {
-    final googleDrive = _ref.read(googleDriveServiceProvider);
-    final oneDrive = _ref.read(oneDriveServiceProvider);
+    final googleDrive = ref.read(googleDriveServiceProvider);
+    final oneDrive = ref.read(oneDriveServiceProvider);
     state = state.copyWith(
       googleSignedIn: googleDrive.isSignedIn,
       oneDriveSignedIn: oneDrive.isSignedIn,
@@ -83,25 +83,25 @@ class SyncStateNotifier extends StateNotifier<SyncState> {
   }
 
   Future<void> signInGoogle() async {
-    final service = _ref.read(googleDriveServiceProvider);
+    final service = ref.read(googleDriveServiceProvider);
     final ok = await service.signIn();
     state = state.copyWith(googleSignedIn: ok);
   }
 
   Future<void> signOutGoogle() async {
-    final service = _ref.read(googleDriveServiceProvider);
+    final service = ref.read(googleDriveServiceProvider);
     await service.signOut();
     state = state.copyWith(googleSignedIn: false);
   }
 
   Future<void> signInOneDrive() async {
-    final service = _ref.read(oneDriveServiceProvider);
+    final service = ref.read(oneDriveServiceProvider);
     final ok = await service.signIn();
     state = state.copyWith(oneDriveSignedIn: ok);
   }
 
   Future<void> signOutOneDrive() async {
-    final service = _ref.read(oneDriveServiceProvider);
+    final service = ref.read(oneDriveServiceProvider);
     await service.signOut();
     state = state.copyWith(oneDriveSignedIn: false);
   }
@@ -110,7 +110,7 @@ class SyncStateNotifier extends StateNotifier<SyncState> {
     if (state.isSyncing) return;
     state = state.copyWith(isSyncing: true, lastError: null);
     try {
-      final engine = _ref.read(syncEngineProvider);
+      final engine = ref.read(syncEngineProvider);
       final result = await engine.syncAll(SyncProvider.googleDrive);
       state = state.copyWith(
         isSyncing: false,
@@ -126,7 +126,7 @@ class SyncStateNotifier extends StateNotifier<SyncState> {
     if (state.isSyncing) return;
     state = state.copyWith(isSyncing: true, lastError: null);
     try {
-      final engine = _ref.read(syncEngineProvider);
+      final engine = ref.read(syncEngineProvider);
       final result = await engine.syncAll(SyncProvider.oneDrive);
       state = state.copyWith(
         isSyncing: false,

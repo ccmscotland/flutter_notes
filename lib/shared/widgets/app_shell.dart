@@ -10,6 +10,7 @@ import '../../features/tabs/tabs_provider.dart';
 import '../providers/nav_state_provider.dart';
 import '../utils/responsive.dart';
 import 'browse_pane.dart';
+import '../theme/app_theme.dart';
 
 /// Root shell widget provided to go_router's ShellRoute.
 ///
@@ -180,12 +181,12 @@ class _SelectPagePlaceholder extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.notes_outlined,
-                size: 80, color: cs.onSurface.withOpacity(0.25)),
+                size: 80, color: cs.onSurface.withValues(alpha: 0.25)),
             const SizedBox(height: 16),
             Text(
               'Select a page to start editing',
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: cs.onSurface.withOpacity(0.45),
+                    color: cs.onSurface.withValues(alpha: 0.45),
                   ),
             ),
           ],
@@ -778,29 +779,18 @@ class _EditItemDialog extends StatefulWidget {
 }
 
 class _EditItemDialogState extends State<_EditItemDialog> {
-  static const _palette = [
-    0xFF1565C0, // Blue
-    0xFF6A1B9A, // Purple
-    0xFF00695C, // Teal
-    0xFF2E7D32, // Green
-    0xFF8D6E63, // Brown
-    0xFFE65100, // Orange
-    0xFFC62828, // Red
-    0xFF37474F, // Slate
-    0xFFAD1457, // Pink
-    0xFFF57F17, // Amber
-  ];
-
   late final TextEditingController _ctrl;
   late int _color;
+  String? _nameError;
 
   @override
   void initState() {
     super.initState();
     _ctrl  = TextEditingController(text: widget.initialName);
     _color = widget.initialColor;
-    // If the current colour isn't in the palette, default to the first entry.
-    if (!_palette.contains(_color)) _color = _palette.first;
+    // If the current colour isn't in the canonical palette, default to first.
+    final palette = AppTheme.notebookColorValues;
+    if (!palette.contains(_color)) _color = palette.first;
   }
 
   @override
@@ -811,7 +801,15 @@ class _EditItemDialogState extends State<_EditItemDialog> {
 
   void _submit() {
     final name = _ctrl.text.trim();
-    if (name.isNotEmpty) Navigator.pop(context, (name, _color));
+    if (name.isEmpty) {
+      setState(() => _nameError = 'Name cannot be empty');
+      return;
+    }
+    if (name.length > 100) {
+      setState(() => _nameError = 'Name must be 100 characters or fewer');
+      return;
+    }
+    Navigator.pop(context, (name, _color));
   }
 
   @override
@@ -825,7 +823,12 @@ class _EditItemDialogState extends State<_EditItemDialog> {
           TextField(
             controller: _ctrl,
             autofocus: true,
-            decoration: const InputDecoration(labelText: 'Name'),
+            maxLength: 100,
+            decoration: InputDecoration(
+              labelText: 'Name',
+              errorText: _nameError,
+            ),
+            onChanged: (_) => setState(() => _nameError = null),
             onSubmitted: (_) => _submit(),
           ),
           const SizedBox(height: 20),
@@ -835,7 +838,7 @@ class _EditItemDialogState extends State<_EditItemDialog> {
           Wrap(
             spacing: 10,
             runSpacing: 10,
-            children: _palette.map((c) {
+            children: AppTheme.notebookColorValues.map((c) {
               final selected = _color == c;
               return GestureDetector(
                 onTap: () => setState(() => _color = c),
@@ -953,7 +956,7 @@ class _TabChip extends StatelessWidget {
               ? Border.all(color: cs.outlineVariant, width: 0.5)
               : null,
           boxShadow: isActive
-              ? [BoxShadow(color: cs.shadow.withOpacity(0.08), blurRadius: 2)]
+              ? [BoxShadow(color: cs.shadow.withValues(alpha: 0.08), blurRadius: 2)]
               : null,
         ),
         child: Row(

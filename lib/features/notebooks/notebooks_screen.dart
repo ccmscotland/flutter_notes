@@ -184,7 +184,7 @@ class _EmptyState extends StatelessWidget {
         children: [
           Icon(Icons.menu_book_outlined,
               size: 80,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)),
           const SizedBox(height: 16),
           Text(
             'No notebooks yet',
@@ -192,7 +192,7 @@ class _EmptyState extends StatelessWidget {
                   color: Theme.of(context)
                       .colorScheme
                       .onSurface
-                      .withOpacity(0.5),
+                      .withValues(alpha: 0.5),
                 ),
           ),
           const SizedBox(height: 24),
@@ -273,7 +273,7 @@ class _NotebookFormDialogState extends State<_NotebookFormDialog> {
                     shape: BoxShape.circle,
                     border: Border.all(
                       color:
-                          Theme.of(context).colorScheme.outline.withOpacity(0.5),
+                          Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
                     ),
                   ),
                 ),

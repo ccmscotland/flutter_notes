@@ -16,6 +16,37 @@ final _searchResultsProvider =
   return dao.search(query.trim());
 });
 
+/// Returns [TextSpan] children highlighting every occurrence of [query]
+/// (case-insensitive) inside [text] using [highlightStyle].
+List<TextSpan> _buildHighlightSpans(
+  String text,
+  String query,
+  TextStyle highlightStyle,
+) {
+  if (query.isEmpty) return [TextSpan(text: text)];
+  final lower = text.toLowerCase();
+  final queryLower = query.toLowerCase();
+  final spans = <TextSpan>[];
+  int start = 0;
+
+  while (true) {
+    final idx = lower.indexOf(queryLower, start);
+    if (idx == -1) {
+      spans.add(TextSpan(text: text.substring(start)));
+      break;
+    }
+    if (idx > start) {
+      spans.add(TextSpan(text: text.substring(start, idx)));
+    }
+    spans.add(TextSpan(
+      text: text.substring(idx, idx + query.length),
+      style: highlightStyle,
+    ));
+    start = idx + query.length;
+  }
+  return spans;
+}
+
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
 
@@ -100,7 +131,7 @@ class _SearchHint extends StatelessWidget {
           Icon(Icons.search,
               size: 64,
               color:
-                  Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),
+                  Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)),
           const SizedBox(height: 12),
           Text(
             'Search by title or content',
@@ -108,7 +139,7 @@ class _SearchHint extends StatelessWidget {
                   color: Theme.of(context)
                       .colorScheme
                       .onSurface
-                      .withOpacity(0.5),
+                      .withValues(alpha: 0.5),
                 ),
           ),
         ],
@@ -156,24 +187,29 @@ class _SearchResultTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Build highlighted title
-    final titleSpan = _highlightText(page.title, query, context);
+    final highlightStyle = TextStyle(
+      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+      fontWeight: FontWeight.bold,
+    );
 
     // Extract a preview of the content (strip quill JSON)
     String contentPreview = '';
     try {
-      // Simple extraction of text from Quill delta
       contentPreview = _extractText(page.content);
     } catch (_) {}
 
     return ListTile(
       leading: const Icon(Icons.article_outlined),
-      title: RichText(text: titleSpan),
+      title: RichText(
+        text: TextSpan(
+          children: _buildHighlightSpans(page.title, query, highlightStyle),
+          style: DefaultTextStyle.of(context).style,
+        ),
+      ),
       subtitle: contentPreview.isNotEmpty
           ? _HighlightedText(text: contentPreview, query: query, maxLines: 2)
           : null,
       onTap: () async {
-        // Find section + notebook for this page
         final sectionId = page.sectionId;
         final sectionsDao = SectionsDao();
         final section = await sectionsDao.getById(sectionId);
@@ -203,40 +239,6 @@ class _SearchResultTile extends ConsumerWidget {
       return '';
     }
   }
-
-  TextSpan _highlightText(
-      String text, String query, BuildContext context) {
-    if (query.isEmpty) return TextSpan(text: text);
-    final lower = text.toLowerCase();
-    final queryLower = query.toLowerCase();
-    final spans = <TextSpan>[];
-    int start = 0;
-
-    while (true) {
-      final idx = lower.indexOf(queryLower, start);
-      if (idx == -1) {
-        spans.add(TextSpan(text: text.substring(start)));
-        break;
-      }
-      if (idx > start) {
-        spans.add(TextSpan(text: text.substring(start, idx)));
-      }
-      spans.add(TextSpan(
-        text: text.substring(idx, idx + query.length),
-        style: TextStyle(
-          backgroundColor:
-              Theme.of(context).colorScheme.primaryContainer,
-          fontWeight: FontWeight.bold,
-        ),
-      ));
-      start = idx + query.length;
-    }
-
-    return TextSpan(
-      children: spans,
-      style: DefaultTextStyle.of(context).style,
-    );
-  }
 }
 
 class _HighlightedText extends StatelessWidget {
@@ -252,37 +254,14 @@ class _HighlightedText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (query.isEmpty) {
-      return Text(text, maxLines: maxLines, overflow: TextOverflow.ellipsis);
-    }
-
-    final lower = text.toLowerCase();
-    final queryLower = query.toLowerCase();
-    final spans = <TextSpan>[];
-    int start = 0;
-
-    while (true) {
-      final idx = lower.indexOf(queryLower, start);
-      if (idx == -1) {
-        spans.add(TextSpan(text: text.substring(start)));
-        break;
-      }
-      if (idx > start) {
-        spans.add(TextSpan(text: text.substring(start, idx)));
-      }
-      spans.add(TextSpan(
-        text: text.substring(idx, idx + query.length),
-        style: TextStyle(
-          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-          fontWeight: FontWeight.bold,
-        ),
-      ));
-      start = idx + query.length;
-    }
+    final highlightStyle = TextStyle(
+      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+      fontWeight: FontWeight.bold,
+    );
 
     return RichText(
       text: TextSpan(
-        children: spans,
+        children: _buildHighlightSpans(text, query, highlightStyle),
         style: Theme.of(context).textTheme.bodySmall,
       ),
       maxLines: maxLines,

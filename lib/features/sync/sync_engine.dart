@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:uuid/uuid.dart';
 import '../../core/database/notebooks_dao.dart';
 import '../../core/database/sections_dao.dart';
@@ -41,6 +42,16 @@ class SyncEngine {
         _oneDrive = oneDrive;
 
   // ---- Public entry points ----
+
+  /// Exposed for unit testing: runs the full sync logic with caller-supplied
+  /// upload/download callbacks, bypassing the real cloud service instances.
+  @visibleForTesting
+  Future<void> syncWithCallbacks(
+    String providerKey,
+    Future<void> Function(String, String) uploadText,
+    Future<String?> Function(String) downloadText,
+    Future<void> Function(String, List<int>, String) uploadBinary,
+  ) => _syncWithService(providerKey, uploadText, downloadText, uploadBinary);
 
   Future<SyncResult> syncAll(SyncProvider provider) async {
     final errors = <String>[];
@@ -90,8 +101,6 @@ class SyncEngine {
     // 2. Sync notebooks
     for (final nb in localNotebooks) {
       final remotePath = '${nb.id}/notebook.json';
-      final syncRecord = await _syncRecordsDao.getByEntityAndProvider(
-          nb.id, providerKey);
 
       final remoteEntry = remoteManifest[nb.id] as Map<String, dynamic>?;
       final remoteTs = remoteEntry?['updated_at'] as int?;
@@ -104,7 +113,7 @@ class SyncEngine {
           entityType: 'notebook',
           entityId: nb.id,
           lastSyncedAt: DateTime.now().millisecondsSinceEpoch,
-          syncStatus: 'synced',
+          syncStatus: SyncStatus.synced,
           remotePath: remotePath,
           provider: providerKey,
         ));
@@ -155,15 +164,61 @@ class SyncEngine {
     Future<String?> Function(String) downloadText,
     Future<void> Function(String, List<int>, String) uploadBinary,
   ) async {
+    // Download remote section manifest for this notebook to enable
+    // timestamp-based conflict resolution (mirrors notebook sync behaviour).
+    Map<String, dynamic> remoteSectionManifest = {};
+    final sectionManifestJson =
+        await downloadText('$notebookId/_sections.json');
+    if (sectionManifestJson != null) {
+      try {
+        remoteSectionManifest =
+            jsonDecode(sectionManifestJson) as Map<String, dynamic>;
+      } catch (_) {}
+    }
+
     final sections = await _sectionsDao.getByNotebook(notebookId);
     for (final section in sections) {
       final remotePath = '$notebookId/${section.id}/section.json';
-      await uploadText(remotePath, jsonEncode(section.toJson()));
+
+      final remoteEntry =
+          remoteSectionManifest[section.id] as Map<String, dynamic>?;
+      final remoteTs = remoteEntry?['updated_at'] as int?;
+
+      if (remoteTs == null || section.updatedAt > remoteTs) {
+        // Local is newer (or never synced) → upload
+        await uploadText(remotePath, jsonEncode(section.toJson()));
+        await _syncRecordsDao.upsert(SyncRecord(
+          id: const Uuid().v4(),
+          entityType: 'section',
+          entityId: section.id,
+          lastSyncedAt: DateTime.now().millisecondsSinceEpoch,
+          syncStatus: SyncStatus.synced,
+          remotePath: remotePath,
+          provider: providerKey,
+        ));
+      } else if (remoteTs > section.updatedAt) {
+        // Remote is newer → download
+        final remoteJson = await downloadText(remotePath);
+        if (remoteJson != null) {
+          final remoteSection = Section.fromJson(
+              jsonDecode(remoteJson) as Map<String, dynamic>);
+          await _sectionsDao.update(remoteSection);
+        }
+      }
 
       // Sync pages under this section
       await _syncPages(notebookId, section.id, providerKey, uploadText,
           downloadText, uploadBinary);
     }
+
+    // Upload updated section manifest for this notebook
+    final allSections = await _sectionsDao.getByNotebook(notebookId);
+    final sectionManifest = {
+      for (final s in allSections)
+        s.id: {'name': s.name, 'updated_at': s.updatedAt}
+    };
+    await uploadText(
+        '$notebookId/_sections.json', jsonEncode(sectionManifest));
   }
 
   Future<void> _syncPages(
@@ -174,20 +229,55 @@ class SyncEngine {
     Future<String?> Function(String) downloadText,
     Future<void> Function(String, List<int>, String) uploadBinary,
   ) async {
+    // Download remote page manifest for this section for conflict resolution.
+    Map<String, dynamic> remotePageManifest = {};
+    final pageManifestJson =
+        await downloadText('$notebookId/$sectionId/_pages.json');
+    if (pageManifestJson != null) {
+      try {
+        remotePageManifest =
+            jsonDecode(pageManifestJson) as Map<String, dynamic>;
+      } catch (_) {}
+    }
+
     final pages = await _pagesDao.getBySection(sectionId);
     for (final page in pages) {
-      final remotePath =
-          '$notebookId/$sectionId/${page.id}/page.json';
-      await uploadText(remotePath, jsonEncode(page.toJson()));
+      final remotePath = '$notebookId/$sectionId/${page.id}/page.json';
 
-      // Upload assets
+      final remoteEntry =
+          remotePageManifest[page.id] as Map<String, dynamic>?;
+      final remoteTs = remoteEntry?['updated_at'] as int?;
+
+      if (remoteTs == null || page.updatedAt > remoteTs) {
+        // Local is newer (or never synced) → upload
+        await uploadText(remotePath, jsonEncode(page.toJson()));
+        await _syncRecordsDao.upsert(SyncRecord(
+          id: const Uuid().v4(),
+          entityType: 'page',
+          entityId: page.id,
+          lastSyncedAt: DateTime.now().millisecondsSinceEpoch,
+          syncStatus: SyncStatus.synced,
+          remotePath: remotePath,
+          provider: providerKey,
+        ));
+      } else if (remoteTs > page.updatedAt) {
+        // Remote is newer → download
+        final remoteJson = await downloadText(remotePath);
+        if (remoteJson != null) {
+          final remotePage = NotePage.fromJson(
+              jsonDecode(remoteJson) as Map<String, dynamic>);
+          await _pagesDao.update(remotePage);
+        }
+      }
+
+      // Upload assets (always upload if not yet synced)
       final assets = await _assetsDao.getByPage(page.id);
       for (final asset in assets) {
         final assetPath =
             '$notebookId/$sectionId/${page.id}/assets/${asset.fileName}';
         final existing = await _syncRecordsDao.getByEntityAndProvider(
             asset.id, providerKey);
-        if (existing?.syncStatus != 'synced') {
+        if (existing?.syncStatus != SyncStatus.synced) {
           final file = File(asset.localPath);
           if (file.existsSync()) {
             final bytes = await file.readAsBytes();
@@ -197,7 +287,7 @@ class SyncEngine {
               entityType: 'asset',
               entityId: asset.id,
               lastSyncedAt: DateTime.now().millisecondsSinceEpoch,
-              syncStatus: 'synced',
+              syncStatus: SyncStatus.synced,
               remotePath: assetPath,
               provider: providerKey,
             ));
@@ -205,6 +295,15 @@ class SyncEngine {
         }
       }
     }
+
+    // Upload updated page manifest for this section
+    final allPages = await _pagesDao.getBySection(sectionId);
+    final pageManifest = {
+      for (final p in allPages)
+        p.id: {'title': p.title, 'updated_at': p.updatedAt}
+    };
+    await uploadText(
+        '$notebookId/$sectionId/_pages.json', jsonEncode(pageManifest));
   }
 }
 

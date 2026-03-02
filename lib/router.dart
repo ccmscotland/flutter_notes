@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'features/notebooks/notebooks_screen.dart';
 import 'features/sections/sections_screen.dart';
@@ -9,6 +10,27 @@ import 'shared/widgets/app_shell.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/',
+  errorBuilder: (context, state) => Scaffold(
+    appBar: AppBar(title: const Text('Page not found')),
+    body: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, size: 64),
+          const SizedBox(height: 16),
+          Text(
+            'Could not find this page.',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 24),
+          FilledButton(
+            onPressed: () => context.go('/'),
+            child: const Text('Go to Notebooks'),
+          ),
+        ],
+      ),
+    ),
+  ),
   routes: [
     ShellRoute(
       builder: (context, state, child) => AppShell(child: child),

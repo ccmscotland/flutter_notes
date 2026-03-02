@@ -138,12 +138,12 @@ class _NoSelectionPlaceholder extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.folder_open_outlined,
-                size: 64, color: cs.onSurface.withOpacity(0.25)),
+                size: 64, color: cs.onSurface.withValues(alpha: 0.25)),
             const SizedBox(height: 12),
             Text(
               'Select a section',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface.withOpacity(0.45),
+                    color: cs.onSurface.withValues(alpha: 0.45),
                   ),
             ),
           ],
@@ -164,12 +164,12 @@ class _EmptyBrowsePlaceholder extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.article_outlined,
-              size: 48, color: cs.onSurface.withOpacity(0.25)),
+              size: 48, color: cs.onSurface.withValues(alpha: 0.25)),
           const SizedBox(height: 12),
           Text(
             'No pages — tap + to create one',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: cs.onSurface.withOpacity(0.45),
+                  color: cs.onSurface.withValues(alpha: 0.45),
                 ),
           ),
         ],

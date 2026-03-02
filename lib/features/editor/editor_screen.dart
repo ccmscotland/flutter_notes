@@ -806,8 +806,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         ? Color(_bgColor)
         : Theme.of(context).colorScheme.surface;
     final lineColor = bgColor.computeLuminance() > 0.5
-        ? Colors.black.withOpacity(0.13)
-        : Colors.white.withOpacity(0.20);
+        ? Colors.black.withValues(alpha: 0.13)
+        : Colors.white.withValues(alpha: 0.20);
 
     // When a lined/grid/cornell background is active, snap text line-height
     // to the background spacing so typed lines sit on the ruled lines.
@@ -1002,7 +1002,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                               color: bgColor,
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.18),
+                                  color: Colors.black.withValues(alpha: 0.18),
                                   blurRadius: 10,
                                   offset: const Offset(0, 2),
                                 ),
@@ -1694,7 +1694,7 @@ class _ResizableImageState extends State<_ResizableImage> {
                       child: Container(
                         padding: const EdgeInsets.all(5),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.45),
+                          color: Colors.black.withValues(alpha: 0.45),
                           borderRadius: const BorderRadius.only(
                             bottomLeft: Radius.circular(6),
                             topRight:   Radius.circular(4),
@@ -2414,21 +2414,21 @@ class _PageBackgroundPainter extends CustomPainter {
       canvas.drawRect(
         Rect.fromLTWH(0, breakY - 3, size.width, 3),
         Paint()
-          ..color = Colors.black.withOpacity(0.18)
+          ..color = Colors.black.withValues(alpha: 0.18)
           ..style = PaintingStyle.fill,
       );
       // Grey gap band.
       canvas.drawRect(
         Rect.fromLTWH(0, breakY, size.width, _bandH),
         Paint()
-          ..color = Colors.grey.shade400.withOpacity(0.55)
+          ..color = Colors.grey.shade400.withValues(alpha: 0.55)
           ..style = PaintingStyle.fill,
       );
       // Subtle shadow at top of the incoming page.
       canvas.drawRect(
         Rect.fromLTWH(0, breakY + _bandH, size.width, 2),
         Paint()
-          ..color = Colors.black.withOpacity(0.10)
+          ..color = Colors.black.withValues(alpha: 0.10)
           ..style = PaintingStyle.fill,
       );
     }

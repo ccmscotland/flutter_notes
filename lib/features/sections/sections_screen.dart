@@ -166,14 +166,14 @@ class _EmptyState extends StatelessWidget {
         children: [
           Icon(Icons.folder_outlined,
               size: 80,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)),
           const SizedBox(height: 16),
           Text('No sections yet',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: Theme.of(context)
                         .colorScheme
                         .onSurface
-                        .withOpacity(0.5),
+                        .withValues(alpha: 0.5),
                   )),
           const SizedBox(height: 24),
           FilledButton.icon(
@@ -256,7 +256,7 @@ class _SectionFormDialogState extends State<_SectionFormDialog> {
                       color: Theme.of(context)
                           .colorScheme
                           .outline
-                          .withOpacity(0.5),
+                          .withValues(alpha: 0.5),
                     ),
                   ),
                 ),

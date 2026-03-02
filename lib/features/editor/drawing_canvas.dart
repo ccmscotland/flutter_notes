@@ -334,7 +334,7 @@ class DrawingPainter extends CustomPainter {
   Paint _makePaint(DrawingStroke stroke) {
     return Paint()
       ..color = stroke.tool == DrawingTool.highlighter
-          ? stroke.color.withOpacity(0.4)
+          ? stroke.color.withValues(alpha: 0.4)
           : stroke.color
       ..strokeWidth = stroke.strokeWidth
       ..strokeCap = StrokeCap.round
@@ -501,7 +501,7 @@ class DrawingToolbar extends StatelessWidget {
                       width: 24,
                       height: 24,
                       decoration: BoxDecoration(
-                        color: _isColorRelevant ? c : c.withOpacity(0.3),
+                        color: _isColorRelevant ? c : c.withValues(alpha: 0.3),
                         shape: BoxShape.circle,
                         border: selectedColor == c && _isColorRelevant
                             ? Border.all(color: cs.primary, width: 2)
@@ -734,7 +734,7 @@ class _FloatingDrawingToolbarState extends State<FloatingDrawingToolbar> {
                           width: 22,
                           height: 3,
                           decoration: BoxDecoration(
-                            color: cs.onSurfaceVariant.withOpacity(0.4),
+                            color: cs.onSurfaceVariant.withValues(alpha: 0.4),
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
@@ -760,7 +760,7 @@ class _FloatingDrawingToolbarState extends State<FloatingDrawingToolbar> {
                                 color: widget.selectedColor,
                                 shape: BoxShape.circle,
                                 border: Border.all(
-                                    color: cs.outline.withOpacity(0.5),
+                                    color: cs.outline.withValues(alpha: 0.5),
                                     width: 1),
                               ),
                             ),
@@ -925,7 +925,7 @@ class _FloatingDrawingToolbarState extends State<FloatingDrawingToolbar> {
                       height: 4,
                       margin: const EdgeInsets.only(bottom: 16),
                       decoration: BoxDecoration(
-                        color: cs.onSurfaceVariant.withOpacity(0.3),
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.3),
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -968,7 +968,7 @@ class _FloatingDrawingToolbarState extends State<FloatingDrawingToolbar> {
                                             color: cs.primary, width: 3)
                                         : Border.all(
                                             color: cs.outline
-                                                .withOpacity(0.35),
+                                                .withValues(alpha: 0.35),
                                             width: 1),
                                   ),
                                   child: color == c

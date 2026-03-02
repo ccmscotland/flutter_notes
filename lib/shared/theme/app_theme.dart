@@ -14,6 +14,11 @@ class AppTheme {
     Color(0xFF558B2F), // Light Green
   ];
 
+  /// Integer ARGB values of [notebookColors], suitable for use in dialogs
+  /// that work with raw color integers.
+  static List<int> get notebookColorValues =>
+      notebookColors.map((c) => c.value).toList();
+
   static ThemeData light() {
     return ThemeData(
       useMaterial3: true,
