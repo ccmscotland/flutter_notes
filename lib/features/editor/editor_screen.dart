@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart' show PointerDeviceKind, PointerScrollEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData, HardwareKeyboard;
@@ -1385,6 +1386,7 @@ class _ImageEmbed {
     this.inkStrokes,
     this.inkCanvasWidth,
     this.inkCanvasHeight,
+    this.compositePath,
   });
 
   final String  path;
@@ -1392,6 +1394,7 @@ class _ImageEmbed {
   final List<DrawingStroke>? inkStrokes;
   final double? inkCanvasWidth;   // canvas width when strokes were drawn
   final double? inkCanvasHeight;  // canvas height when strokes were drawn
+  final String? compositePath;    // path to baked composite PNG (image + strokes)
 
   static _ImageEmbed parse(String data) {
     try {
@@ -1413,6 +1416,7 @@ class _ImageEmbed {
         inkStrokes: strokes,
         inkCanvasWidth:  (m['inkCanvasWidth']  as num?)?.toDouble(),
         inkCanvasHeight: (m['inkCanvasHeight'] as num?)?.toDouble(),
+        compositePath: m['compositePath'] as String?,
       );
     } catch (_) {
       return _ImageEmbed(path: data);
@@ -1421,7 +1425,7 @@ class _ImageEmbed {
 
   String toData() {
     final hasInk = inkStrokes != null && inkStrokes!.isNotEmpty;
-    if (widthPixels == null && !hasInk) return path;
+    if (widthPixels == null && !hasInk && compositePath == null) return path;
     final m = <String, dynamic>{'path': path};
     if (widthPixels != null) m['width'] = widthPixels;
     if (hasInk) {
@@ -1429,6 +1433,7 @@ class _ImageEmbed {
       m['inkCanvasWidth']  = inkCanvasWidth;
       m['inkCanvasHeight'] = inkCanvasHeight;
     }
+    if (compositePath != null) m['compositePath'] = compositePath;
     return jsonEncode(m);
   }
 }
@@ -1454,6 +1459,7 @@ class _ResizableImage extends StatelessWidget {
             inkStrokes: embed.inkStrokes,
             inkCanvasWidth: embed.inkCanvasWidth,
             inkCanvasHeight: embed.inkCanvasHeight,
+            compositePath: embed.compositePath,
           );
           embedContext.controller.replaceText(
             embedContext.node.documentOffset,
@@ -1473,6 +1479,8 @@ class _ResizableImage extends StatelessWidget {
         fullscreenDialog: true,
         builder: (_) => AnnotateImageScreen(
           imagePath: embed.path,
+          // Re-edit from original strokes so the user works on the vector data,
+          // not a flattened JPEG raster.
           initialStrokes: embed.inkStrokes ?? [],
           initialCanvasSize: (embed.inkCanvasWidth != null &&
                   embed.inkCanvasHeight != null)
@@ -1482,12 +1490,71 @@ class _ResizableImage extends StatelessWidget {
       ),
     );
     if (result == null) return;
+
+    // Bake annotation strokes into a composite PNG so that the image and
+    // its annotations are a single file — zoom / pan / resize always aligned.
+    String? compositePath;
+    if (result.strokes.isNotEmpty) {
+      try {
+        final bytes = await File(embed.path).readAsBytes();
+        final codec = await ui.instantiateImageCodec(bytes);
+        final frame = await codec.getNextFrame();
+        final img   = frame.image;
+        final natW  = img.width.toDouble();
+        final natH  = img.height.toDouble();
+
+        final recorder = ui.PictureRecorder();
+        final canvas   = ui.Canvas(recorder);
+
+        // Draw the original image at natural resolution.
+        canvas.drawImage(img, Offset.zero, Paint());
+        img.dispose();
+
+        // Scale from annotation-canvas coords → natural image coords and paint.
+        canvas.save();
+        canvas.scale(
+          natW / result.canvasSize.width,
+          natH / result.canvasSize.height,
+        );
+        DrawingPainter(
+          strokes: result.strokes,
+          currentPoints: const [],
+          currentTool: DrawingTool.pen,
+          currentColor: Colors.black,
+          currentWidth: 1,
+        ).paint(canvas, result.canvasSize);
+        canvas.restore();
+
+        final picture      = recorder.endRecording();
+        final compositeImg = await picture.toImage(natW.round(), natH.round());
+        picture.dispose();
+
+        final byteData = await compositeImg.toByteData(
+            format: ui.ImageByteFormat.png);
+        compositeImg.dispose();
+
+        final dir  = p.dirname(embed.path);
+        final name = p.basenameWithoutExtension(embed.path);
+        compositePath = '$dir/${name}_annotated.png';
+        await File(compositePath).writeAsBytes(byteData!.buffer.asUint8List());
+      } catch (e) {
+        // If baking fails, compositePath stays null → fall back to overlay.
+        debugPrint('Annotation bake failed: $e');
+      }
+    } else {
+      // Strokes cleared — delete stale composite so it is not shown.
+      if (embed.compositePath != null) {
+        try { await File(embed.compositePath!).delete(); } catch (_) {}
+      }
+    }
+
     final updated = _ImageEmbed(
       path: embed.path,
       widthPixels: embed.widthPixels,
       inkStrokes: result.strokes.isEmpty ? null : result.strokes,
       inkCanvasWidth:  result.strokes.isEmpty ? null : result.canvasSize.width,
       inkCanvasHeight: result.strokes.isEmpty ? null : result.canvasSize.height,
+      compositePath: compositePath,
     );
     embedContext.controller.replaceText(
       embedContext.node.documentOffset,
@@ -1499,8 +1566,16 @@ class _ResizableImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final file = File(embed.path);
-    final hasInk = embed.inkStrokes != null && embed.inkStrokes!.isNotEmpty;
+    // Prefer the baked composite (annotations are literal image pixels →
+    // they zoom / pan / resize perfectly with the image).
+    final hasComposite = embed.compositePath != null &&
+        File(embed.compositePath!).existsSync();
+    final displayFile  = File(hasComposite ? embed.compositePath! : embed.path);
+
+    // Legacy: embeds that have vector strokes but no composite yet.
+    final hasLegacyInk = !hasComposite &&
+        embed.inkStrokes != null &&
+        embed.inkStrokes!.isNotEmpty;
 
     return LayoutBuilder(
       builder: (ctx, constraints) {
@@ -1509,8 +1584,8 @@ class _ResizableImage extends StatelessWidget {
             ? containerWidth
             : embed.widthPixels!.clamp(48.0, containerWidth);
 
-        // Compute display height for the ink overlay scaling.
-        final displayHeight = hasInk && embed.inkCanvasWidth != null
+        // Height is only needed for the legacy overlay path.
+        final displayHeight = hasLegacyInk && embed.inkCanvasWidth != null
             ? displayWidth * embed.inkCanvasHeight! / embed.inkCanvasWidth!
             : null;
 
@@ -1521,9 +1596,9 @@ class _ResizableImage extends StatelessWidget {
             child: Stack(
               alignment: Alignment.topLeft,
               children: [
-                // Image
-                file.existsSync()
-                    ? Image.file(file,
+                // Image (composite when available, original otherwise)
+                displayFile.existsSync()
+                    ? Image.file(displayFile,
                         width: displayWidth,
                         fit: BoxFit.contain,
                         alignment: Alignment.topLeft)
@@ -1531,8 +1606,8 @@ class _ResizableImage extends StatelessWidget {
                         width: displayWidth,
                         child: const Icon(Icons.broken_image, size: 48)),
 
-                // Ink annotation overlay
-                if (hasInk && displayHeight != null)
+                // Legacy ink overlay — only for old embeds without a composite.
+                if (hasLegacyInk && displayHeight != null)
                   Positioned.fill(
                     child: SizedBox(
                       width: displayWidth,
