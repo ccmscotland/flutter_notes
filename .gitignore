@@ -1,0 +1,33 @@
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+pubspec.lock
+
+# Generated code (commit these to avoid build_runner on CI, or exclude as preferred)
+*.g.dart
+*.freezed.dart
+
+# Android
+android/local.properties
+android/app/google-services.json
+android/.gradle
+android/captures/
+android/gradlew
+android/gradlew.bat
+android/gradle/
+
+# Secrets
+android/app/src/main/res/raw/msal_config.json
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# macOS
+.DS_Store
