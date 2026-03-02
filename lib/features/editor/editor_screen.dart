@@ -1460,7 +1460,33 @@ class _ResizableImageState extends State<_ResizableImage> {
   _ImageEmbed  get embed        => widget.embed;
   EmbedContext get embedContext => widget.embedContext;
 
-  void _showSizePicker(double containerWidth) {
+  double _containerWidth = double.infinity;
+
+  void _showOptions() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.draw_outlined),
+              title: const Text('Annotate image'),
+              onTap: () { Navigator.pop(sheetCtx); _startAnnotation(); },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_size_select_large),
+              title: const Text('Resize image'),
+              onTap: () { Navigator.pop(sheetCtx); _showSizePicker(); },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSizePicker() {
+    final containerWidth = _containerWidth;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1604,14 +1630,15 @@ class _ResizableImageState extends State<_ResizableImage> {
         embed.inkStrokes!.isNotEmpty;
 
     // Root widget is the GestureDetector so it wins the Quill gesture arena
-    // (same pattern as _InlineTableWidget).  Long-press opens annotation;
-    // the resize badge handles its own short tap.
+    // (same pattern as _InlineTableWidget).  Tap opens a bottom sheet with
+    // Annotate and Resize options.
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onLongPress: embedContext.readOnly ? null : _startAnnotation,
+      onTap: embedContext.readOnly ? null : _showOptions,
       child: LayoutBuilder(
         builder: (ctx, constraints) {
           final containerWidth = constraints.maxWidth;
+          _containerWidth = containerWidth;
           final displayWidth   = embed.widthPixels == null
               ? containerWidth
               : embed.widthPixels!.clamp(48.0, containerWidth);
@@ -1628,8 +1655,11 @@ class _ResizableImageState extends State<_ResizableImage> {
                 alignment: Alignment.topLeft,
                 children: [
                   // Image (composite when available, original otherwise).
+                  // key: ValueKey forces widget rebuild (and cache miss) when
+                  // the composite path changes after re-annotation.
                   displayFile.existsSync()
                       ? Image.file(displayFile,
+                          key: ValueKey(displayFile.path),
                           width: displayWidth,
                           fit: BoxFit.contain,
                           alignment: Alignment.topLeft)
@@ -1655,8 +1685,8 @@ class _ResizableImageState extends State<_ResizableImage> {
                       ),
                     ),
 
-                  // Annotation hint (top-right) — visual only, the long-press
-                  // on the image triggers annotation.
+                  // Tap-hint badge (top-right) — visual only; the tap on the
+                  // root GestureDetector opens the options bottom sheet.
                   if (!embedContext.readOnly)
                     Positioned(
                       right: 0,
@@ -1670,32 +1700,10 @@ class _ResizableImageState extends State<_ResizableImage> {
                             topRight:   Radius.circular(4),
                           ),
                         ),
-                        child: const Icon(Icons.draw_outlined,
+                        child: const Icon(Icons.more_vert,
                             color: Colors.white, size: 14),
                       ),
                     ),
-
-                  // Resize badge (bottom-right) — tap to resize.
-                  Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => _showSizePicker(containerWidth),
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.50),
-                          borderRadius: const BorderRadius.only(
-                            topLeft:     Radius.circular(6),
-                            bottomRight: Radius.circular(4),
-                          ),
-                        ),
-                        child: const Icon(Icons.photo_size_select_large,
-                            color: Colors.white, size: 18),
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
