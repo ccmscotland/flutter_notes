@@ -1438,14 +1438,22 @@ class _ImageEmbed {
   }
 }
 
-/// Image widget. Tap to open a pixel-size picker sheet.
-class _ResizableImage extends StatelessWidget {
+/// Image widget. Tap badges to annotate or resize.
+class _ResizableImage extends StatefulWidget {
   const _ResizableImage({required this.embed, required this.embedContext});
 
   final _ImageEmbed  embed;
   final EmbedContext embedContext;
 
-  void _showSizePicker(BuildContext context, double containerWidth) {
+  @override
+  State<_ResizableImage> createState() => _ResizableImageState();
+}
+
+class _ResizableImageState extends State<_ResizableImage> {
+  _ImageEmbed  get embed        => widget.embed;
+  EmbedContext get embedContext => widget.embedContext;
+
+  void _showSizePicker(double containerWidth) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1472,7 +1480,8 @@ class _ResizableImage extends StatelessWidget {
     );
   }
 
-  Future<void> _startAnnotation(BuildContext context) async {
+  Future<void> _startAnnotation() async {
+    if (embedContext.readOnly) return;
     final result = await Navigator.push<AnnotateImageResult>(
       context,
       MaterialPageRoute(
@@ -1489,7 +1498,7 @@ class _ResizableImage extends StatelessWidget {
         ),
       ),
     );
-    if (result == null) return;
+    if (result == null || !mounted) return;
 
     // Bake annotation strokes into a composite PNG so that the image and
     // its annotations are a single file — zoom / pan / resize always aligned.
@@ -1624,14 +1633,16 @@ class _ResizableImage extends StatelessWidget {
                     ),
                   ),
 
-                // Annotate badge (top-right)
+                // Annotate badge (top-right) — uses State.context so Navigator
+                // works correctly inside the Quill embed.
                 Positioned(
                   right: 0,
                   top: 0,
                   child: GestureDetector(
-                    onTap: () => _startAnnotation(context),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _startAnnotation,
                     child: Container(
-                      padding: const EdgeInsets.all(3),
+                      padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.50),
                         borderRadius: const BorderRadius.only(
@@ -1640,7 +1651,7 @@ class _ResizableImage extends StatelessWidget {
                         ),
                       ),
                       child: const Icon(Icons.edit_outlined,
-                          color: Colors.white, size: 14),
+                          color: Colors.white, size: 18),
                     ),
                   ),
                 ),
@@ -1650,9 +1661,10 @@ class _ResizableImage extends StatelessWidget {
                   right: 0,
                   bottom: 0,
                   child: GestureDetector(
-                    onTap: () => _showSizePicker(context, containerWidth),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _showSizePicker(containerWidth),
                     child: Container(
-                      padding: const EdgeInsets.all(3),
+                      padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.50),
                         borderRadius: const BorderRadius.only(
@@ -1661,7 +1673,7 @@ class _ResizableImage extends StatelessWidget {
                         ),
                       ),
                       child: const Icon(Icons.photo_size_select_large,
-                          color: Colors.white, size: 14),
+                          color: Colors.white, size: 18),
                     ),
                   ),
                 ),
