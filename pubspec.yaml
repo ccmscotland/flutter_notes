@@ -1,5 +1,5 @@
 name: flutter_notes
-description: A OneNote-like note-taking app with cloud sync.
+description: A hierarchical note-taking app with rich text, tables, ink drawing, and cloud sync.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -43,8 +43,20 @@ dev_dependencies:
   freezed: ^2.5.7
   json_serializable: ^6.8.0
   riverpod_generator: ^2.4.3
+  flutter_launcher_icons: ^0.14.3
 
 flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/icon/
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    icon_size: 48
