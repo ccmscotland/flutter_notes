@@ -1,5 +1,3 @@
-# FlutterNotes — OneNote-like Android App
-
 A full-featured note-taking app with notebook → section → page hierarchy, rich-text editing, drawing canvas, image insertion, and bi-directional cloud sync to Google Drive and OneDrive.
 
 ## Architecture
