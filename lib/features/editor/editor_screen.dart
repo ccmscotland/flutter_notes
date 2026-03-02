@@ -1438,7 +1438,14 @@ class _ImageEmbed {
   }
 }
 
-/// Image widget. Tap badges to annotate or resize.
+/// Image widget that sits inside a Quill embed.
+///
+/// Trigger annotation: **long-press** anywhere on the image.
+/// Trigger resize:     tap the ↔ badge at the bottom-right corner.
+///
+/// The GestureDetector is the ROOT widget so it wins the gesture arena
+/// over Quill's ancestor EditorTextSelectionGestureDetector (same pattern
+/// as _InlineTableWidget, which is confirmed to work).
 class _ResizableImage extends StatefulWidget {
   const _ResizableImage({required this.embed, required this.embedContext});
 
@@ -1488,8 +1495,8 @@ class _ResizableImageState extends State<_ResizableImage> {
         fullscreenDialog: true,
         builder: (_) => AnnotateImageScreen(
           imagePath: embed.path,
-          // Re-edit from original strokes so the user works on the vector data,
-          // not a flattened JPEG raster.
+          // Always re-edit from the original vector strokes — not the composite
+          // raster — so the user works at full fidelity.
           initialStrokes: embed.inkStrokes ?? [],
           initialCanvasSize: (embed.inkCanvasWidth != null &&
                   embed.inkCanvasHeight != null)
@@ -1500,8 +1507,8 @@ class _ResizableImageState extends State<_ResizableImage> {
     );
     if (result == null || !mounted) return;
 
-    // Bake annotation strokes into a composite PNG so that the image and
-    // its annotations are a single file — zoom / pan / resize always aligned.
+    // Bake annotation strokes into a composite PNG so annotations are literal
+    // image pixels — they zoom, pan, and resize with the image perfectly.
     String? compositePath;
     if (result.strokes.isNotEmpty) {
       try {
@@ -1514,12 +1521,10 @@ class _ResizableImageState extends State<_ResizableImage> {
 
         final recorder = ui.PictureRecorder();
         final canvas   = ui.Canvas(recorder);
-
-        // Draw the original image at natural resolution.
         canvas.drawImage(img, Offset.zero, Paint());
         img.dispose();
 
-        // Scale from annotation-canvas coords → natural image coords and paint.
+        // Scale stroke coords (annotation-canvas space) → natural image pixels.
         canvas.save();
         canvas.scale(
           natW / result.canvasSize.width,
@@ -1537,26 +1542,40 @@ class _ResizableImageState extends State<_ResizableImage> {
         final picture      = recorder.endRecording();
         final compositeImg = await picture.toImage(natW.round(), natH.round());
         picture.dispose();
-
         final byteData = await compositeImg.toByteData(
             format: ui.ImageByteFormat.png);
         compositeImg.dispose();
 
-        final dir  = p.dirname(embed.path);
-        final name = p.basenameWithoutExtension(embed.path);
-        compositePath = '$dir/${name}_annotated.png';
+        // Use a timestamp in the filename so Flutter's image cache never
+        // serves a stale version when the user annotates more than once.
+        final dir       = p.dirname(embed.path);
+        final name      = p.basenameWithoutExtension(embed.path);
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        compositePath   = '$dir/${name}_annotated_$timestamp.png';
         await File(compositePath).writeAsBytes(byteData!.buffer.asUint8List());
+
+        // Evict the old composite from Flutter's image cache and delete the
+        // file so storage doesn't grow unboundedly across re-annotations.
+        if (embed.compositePath != null) {
+          try {
+            await FileImage(File(embed.compositePath!)).evict();
+            await File(embed.compositePath!).delete();
+          } catch (_) {}
+        }
       } catch (e) {
-        // If baking fails, compositePath stays null → fall back to overlay.
         debugPrint('Annotation bake failed: $e');
       }
     } else {
-      // Strokes cleared — delete stale composite so it is not shown.
+      // All strokes cleared — remove the stale composite.
       if (embed.compositePath != null) {
-        try { await File(embed.compositePath!).delete(); } catch (_) {}
+        try {
+          await FileImage(File(embed.compositePath!)).evict();
+          await File(embed.compositePath!).delete();
+        } catch (_) {}
       }
     }
 
+    if (!mounted) return;
     final updated = _ImageEmbed(
       path: embed.path,
       widthPixels: embed.widthPixels,
@@ -1575,113 +1594,114 @@ class _ResizableImageState extends State<_ResizableImage> {
 
   @override
   Widget build(BuildContext context) {
-    // Prefer the baked composite (annotations are literal image pixels →
-    // they zoom / pan / resize perfectly with the image).
     final hasComposite = embed.compositePath != null &&
         File(embed.compositePath!).existsSync();
-    final displayFile  = File(hasComposite ? embed.compositePath! : embed.path);
+    final displayFile = File(hasComposite ? embed.compositePath! : embed.path);
 
     // Legacy: embeds that have vector strokes but no composite yet.
     final hasLegacyInk = !hasComposite &&
         embed.inkStrokes != null &&
         embed.inkStrokes!.isNotEmpty;
 
-    return LayoutBuilder(
-      builder: (ctx, constraints) {
-        final containerWidth = constraints.maxWidth;
-        final displayWidth   = embed.widthPixels == null
-            ? containerWidth
-            : embed.widthPixels!.clamp(48.0, containerWidth);
+    // Root widget is the GestureDetector so it wins the Quill gesture arena
+    // (same pattern as _InlineTableWidget).  Long-press opens annotation;
+    // the resize badge handles its own short tap.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPress: embedContext.readOnly ? null : _startAnnotation,
+      child: LayoutBuilder(
+        builder: (ctx, constraints) {
+          final containerWidth = constraints.maxWidth;
+          final displayWidth   = embed.widthPixels == null
+              ? containerWidth
+              : embed.widthPixels!.clamp(48.0, containerWidth);
 
-        // Height is only needed for the legacy overlay path.
-        final displayHeight = hasLegacyInk && embed.inkCanvasWidth != null
-            ? displayWidth * embed.inkCanvasHeight! / embed.inkCanvasWidth!
-            : null;
+          final displayHeight = hasLegacyInk && embed.inkCanvasWidth != null
+              ? displayWidth * embed.inkCanvasHeight! / embed.inkCanvasWidth!
+              : null;
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Stack(
-              alignment: Alignment.topLeft,
-              children: [
-                // Image (composite when available, original otherwise)
-                displayFile.existsSync()
-                    ? Image.file(displayFile,
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Stack(
+                alignment: Alignment.topLeft,
+                children: [
+                  // Image (composite when available, original otherwise).
+                  displayFile.existsSync()
+                      ? Image.file(displayFile,
+                          width: displayWidth,
+                          fit: BoxFit.contain,
+                          alignment: Alignment.topLeft)
+                      : SizedBox(
+                          width: displayWidth,
+                          child: const Icon(Icons.broken_image, size: 48)),
+
+                  // Legacy vector overlay for old embeds without a composite.
+                  if (hasLegacyInk && displayHeight != null)
+                    Positioned.fill(
+                      child: SizedBox(
                         width: displayWidth,
-                        fit: BoxFit.contain,
-                        alignment: Alignment.topLeft)
-                    : SizedBox(
-                        width: displayWidth,
-                        child: const Icon(Icons.broken_image, size: 48)),
-
-                // Legacy ink overlay — only for old embeds without a composite.
-                if (hasLegacyInk && displayHeight != null)
-                  Positioned.fill(
-                    child: SizedBox(
-                      width: displayWidth,
-                      height: displayHeight,
-                      child: CustomPaint(
-                        painter: _ScaledInkPainter(
-                          strokes: embed.inkStrokes!,
-                          inkCanvasWidth:  embed.inkCanvasWidth!,
-                          inkCanvasHeight: embed.inkCanvasHeight!,
-                          displayWidth:  displayWidth,
-                          displayHeight: displayHeight,
+                        height: displayHeight,
+                        child: CustomPaint(
+                          painter: _ScaledInkPainter(
+                            strokes: embed.inkStrokes!,
+                            inkCanvasWidth:  embed.inkCanvasWidth!,
+                            inkCanvasHeight: embed.inkCanvasHeight!,
+                            displayWidth:  displayWidth,
+                            displayHeight: displayHeight,
+                          ),
                         ),
                       ),
                     ),
-                  ),
 
-                // Annotate badge (top-right) — uses State.context so Navigator
-                // works correctly inside the Quill embed.
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _startAnnotation,
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.50),
-                        borderRadius: const BorderRadius.only(
-                          bottomLeft: Radius.circular(6),
-                          topRight:   Radius.circular(4),
+                  // Annotation hint (top-right) — visual only, the long-press
+                  // on the image triggers annotation.
+                  if (!embedContext.readOnly)
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.45),
+                          borderRadius: const BorderRadius.only(
+                            bottomLeft: Radius.circular(6),
+                            topRight:   Radius.circular(4),
+                          ),
                         ),
+                        child: const Icon(Icons.draw_outlined,
+                            color: Colors.white, size: 14),
                       ),
-                      child: const Icon(Icons.edit_outlined,
-                          color: Colors.white, size: 18),
+                    ),
+
+                  // Resize badge (bottom-right) — tap to resize.
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _showSizePicker(containerWidth),
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.50),
+                          borderRadius: const BorderRadius.only(
+                            topLeft:     Radius.circular(6),
+                            bottomRight: Radius.circular(4),
+                          ),
+                        ),
+                        child: const Icon(Icons.photo_size_select_large,
+                            color: Colors.white, size: 18),
+                      ),
                     ),
                   ),
-                ),
-
-                // Size-picker badge (bottom-right)
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => _showSizePicker(containerWidth),
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.50),
-                        borderRadius: const BorderRadius.only(
-                          topLeft:     Radius.circular(6),
-                          bottomRight: Radius.circular(4),
-                        ),
-                      ),
-                      child: const Icon(Icons.photo_size_select_large,
-                          color: Colors.white, size: 18),
-                    ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }
