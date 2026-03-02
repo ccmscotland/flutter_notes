@@ -246,8 +246,14 @@ class _AnnotateImageScreenState extends State<AnnotateImageScreen> {
           : LayoutBuilder(
               builder: (ctx, constraints) {
                 final nat = _naturalSize!;
-                final displayW = constraints.maxWidth;
-                final displayH = displayW * nat.height / nat.width;
+
+                // Fit the image to the available space (letterboxed) so it
+                // stays completely still while the user draws.
+                final scaleW = constraints.maxWidth / nat.width;
+                final scaleH = constraints.maxHeight / nat.height;
+                final scale  = scaleW < scaleH ? scaleW : scaleH;
+                final displayW = nat.width  * scale;
+                final displayH = nat.height * scale;
 
                 // Store canvas size for Done and update on first layout.
                 if (_canvasWidth != displayW || _canvasHeight != displayH) {
@@ -264,20 +270,20 @@ class _AnnotateImageScreenState extends State<AnnotateImageScreen> {
 
                 return Stack(
                   children: [
-                    Positioned.fill(
-                      child: SingleChildScrollView(
-                        child: SizedBox(
-                          width: displayW,
-                          height: displayH,
-                          child: Stack(
-                            children: [
-                              // Image background
-                              Image.file(
-                                File(widget.imagePath),
-                                width: displayW,
-                                height: displayH,
-                                fit: BoxFit.fill,
-                              ),
+                    // Image + drawing surface — centered, fully fixed.
+                    Center(
+                      child: SizedBox(
+                        width: displayW,
+                        height: displayH,
+                        child: Stack(
+                          children: [
+                            // Image background
+                            Image.file(
+                              File(widget.imagePath),
+                              width: displayW,
+                              height: displayH,
+                              fit: BoxFit.fill,
+                            ),
                               // Drawing surface
                               Positioned.fill(
                                 child: Listener(
@@ -328,7 +334,6 @@ class _AnnotateImageScreenState extends State<AnnotateImageScreen> {
                           ),
                         ),
                       ),
-                    ),
                     Positioned.fill(
                       child: FloatingDrawingToolbar(
                         selectedTool: _tool,
