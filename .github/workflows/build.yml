@@ -23,6 +23,17 @@ jobs:
           cache: true
 
       - run: flutter pub get
+
+      - name: Fix msal_flutter missing namespace
+        run: |
+          MSAL_BUILD=$(find ~/.pub-cache -path "*/msal_flutter-*/android/build.gradle" | head -1)
+          if [ -n "$MSAL_BUILD" ] && ! grep -q "namespace" "$MSAL_BUILD"; then
+            MSAL_MANIFEST=$(find ~/.pub-cache -path "*/msal_flutter-*/android/src/main/AndroidManifest.xml" | head -1)
+            NS=$(grep -oP 'package="\K[^"]+' "$MSAL_MANIFEST")
+            sed -i "s/^android {/android {\n    namespace '$NS'/" "$MSAL_BUILD"
+            echo "Patched namespace '$NS' into $MSAL_BUILD"
+          fi
+
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
