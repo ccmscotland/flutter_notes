@@ -113,6 +113,9 @@ class PagesList extends ConsumerWidget {
           onExport: (fmt, _) =>
               ExportService().exportPage(context, pages[i], fmt),
         ),
+        onRename: (newTitle) => ref
+            .read(pagesProvider(sectionId).notifier)
+            .edit(pages[i].copyWith(title: newTitle)),
         onDelete: () {
           showConfirmDialog(
             context,
@@ -137,18 +140,21 @@ class _PageTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onExport;
   final VoidCallback onDelete;
+  final void Function(String newTitle) onRename;
 
   const _PageTile({
     required this.page,
     required this.onTap,
     required this.onExport,
     required this.onDelete,
+    required this.onRename,
   });
 
   @override
   Widget build(BuildContext context) {
     final updated = DateTime.fromMillisecondsSinceEpoch(page.updatedAt);
     final formatted = DateFormat('MMM d, yyyy').format(updated);
+    final cs = Theme.of(context).colorScheme;
 
     return Dismissible(
       key: ValueKey(page.id),
@@ -167,11 +173,74 @@ class _PageTile extends StatelessWidget {
         leading: const Icon(Icons.article_outlined),
         title: Text(page.title),
         subtitle: Text(formatted),
-        trailing: const Icon(Icons.chevron_right),
+        trailing: PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert, size: 18),
+          tooltip: '',
+          itemBuilder: (_) => [
+            const PopupMenuItem(
+              value: 'rename',
+              child: Row(children: [
+                Icon(Icons.edit_outlined, size: 18),
+                SizedBox(width: 8),
+                Text('Rename'),
+              ]),
+            ),
+            const PopupMenuItem(
+              value: 'export',
+              child: Row(children: [
+                Icon(Icons.ios_share_outlined, size: 18),
+                SizedBox(width: 8),
+                Text('Export'),
+              ]),
+            ),
+            const PopupMenuDivider(),
+            PopupMenuItem(
+              value: 'delete',
+              child: Row(children: [
+                Icon(Icons.delete_outline, size: 18, color: cs.error),
+                const SizedBox(width: 8),
+                Text('Delete', style: TextStyle(color: cs.error)),
+              ]),
+            ),
+          ],
+          onSelected: (val) {
+            if (val == 'rename') _showRenameDialog(context);
+            if (val == 'export') onExport();
+            if (val == 'delete') onDelete();
+          },
+        ),
         onTap: onTap,
         onLongPress: onExport,
       ),
     );
+  }
+
+  Future<void> _showRenameDialog(BuildContext context) async {
+    final ctrl = TextEditingController(text: page.title);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Rename Page'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Title'),
+          onSubmitted: (v) => Navigator.pop(context, v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (result != null && result.isNotEmpty) onRename(result);
   }
 }
 
