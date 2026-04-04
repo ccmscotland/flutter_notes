@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/models/notebook.dart';
+import '../sync/sync_settings_screen.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../shared/utils/responsive.dart';
 import '../../shared/widgets/color_picker_dialog.dart';
@@ -27,7 +28,10 @@ class NotebooksScreen extends ConsumerWidget {
           ),
           IconButton(
             icon: const Icon(Icons.sync),
-            onPressed: () => context.push('/settings/sync'),
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => const Dialog.fullscreen(child: SyncSettingsScreen()),
+            ),
           ),
         ],
       ),

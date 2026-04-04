@@ -10,6 +10,7 @@ import '../../features/tabs/tabs_provider.dart';
 import '../providers/nav_state_provider.dart';
 import '../utils/responsive.dart';
 import 'browse_pane.dart';
+import '../../features/sync/sync_settings_screen.dart';
 
 /// Root shell widget provided to go_router's ShellRoute.
 ///
@@ -195,6 +196,13 @@ class _SelectPagePlaceholder extends StatelessWidget {
   }
 }
 
+void _openSyncSettings(BuildContext context) {
+  showDialog<void>(
+    context: context,
+    builder: (_) => const Dialog.fullscreen(child: SyncSettingsScreen()),
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // App Rail (left navigation panel — wide mode)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -334,7 +342,7 @@ class _RailFooter extends ConsumerWidget {
         IconButton(
           icon: const Icon(Icons.sync),
           tooltip: 'Sync',
-          onPressed: () => context.push('/settings/sync'),
+          onPressed: () => _openSyncSettings(context),
         ),
         const SizedBox(height: 4),
       ],

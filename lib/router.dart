@@ -4,7 +4,6 @@ import 'features/sections/sections_screen.dart';
 import 'features/pages/pages_screen.dart';
 import 'features/editor/editor_screen.dart';
 import 'features/search/search_screen.dart';
-import 'features/sync/sync_settings_screen.dart';
 import 'shared/widgets/app_shell.dart';
 
 final appRouter = GoRouter(
@@ -40,10 +39,6 @@ final appRouter = GoRouter(
         GoRoute(
           path: '/search',
           builder: (_, __) => const SearchScreen(),
-        ),
-        GoRoute(
-          path: '/settings/sync',
-          builder: (_, __) => const SyncSettingsScreen(),
         ),
       ],
     ),
