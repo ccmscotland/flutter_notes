@@ -35,6 +35,9 @@ dependencies:
   pdf: ^3.11.0
   archive: ^3.6.0
 
+dependency_overrides:
+  quill_native_bridge_windows: ^0.0.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
