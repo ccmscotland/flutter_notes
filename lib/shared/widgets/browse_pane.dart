@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../features/import/import_service.dart';
 import '../../features/pages/pages_provider.dart';
 import '../../features/pages/pages_screen.dart';
 import '../../features/sections/sections_provider.dart';
@@ -71,6 +72,13 @@ class BrowsePane extends ConsumerWidget {
                     ],
                   ),
                 ),
+                // Import page button
+                IconButton(
+                  icon: const Icon(Icons.upload_file_outlined),
+                  tooltip: 'Import page',
+                  onPressed: () =>
+                      _importPage(context, ref, notebookId, sectionId),
+                ),
                 // New page button
                 IconButton(
                   icon: const Icon(Icons.add),
@@ -104,6 +112,27 @@ class BrowsePane extends ConsumerWidget {
       ],
       ),
     );
+  }
+
+  Future<void> _importPage(
+    BuildContext context,
+    WidgetRef ref,
+    String notebookId,
+    String sectionId,
+  ) async {
+    final result = await ImportService().pickAndParse();
+    if (result == null || !context.mounted) return;
+    final page = await ref
+        .read(pagesProvider(sectionId).notifier)
+        .create(title: result.title, content: result.deltaJson);
+    if (context.mounted) {
+      ref.read(tabsProvider.notifier).openTab(TabEntry(
+        pageId: page.id,
+        sectionId: sectionId,
+        notebookId: notebookId,
+        title: page.title,
+      ));
+    }
   }
 
   Future<void> _createPage(

@@ -6,6 +6,7 @@ import '../../core/models/page.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../export/export_service.dart';
 import '../export/export_sheet.dart';
+import '../import/import_service.dart';
 import '../sections/sections_provider.dart';
 import '../tabs/tabs_provider.dart';
 import 'pages_provider.dart';
@@ -39,6 +40,11 @@ class PagesScreen extends ConsumerWidget {
             icon: const Icon(Icons.search),
             onPressed: () => context.push('/search'),
           ),
+          IconButton(
+            icon: const Icon(Icons.upload_file_outlined),
+            tooltip: 'Import page',
+            onPressed: () => _importPage(context, ref),
+          ),
         ],
       ),
       body: pagesAsync.when(
@@ -62,6 +68,22 @@ class PagesScreen extends ConsumerWidget {
         child: const Icon(Icons.add),
       ),
     );
+  }
+
+  Future<void> _importPage(BuildContext context, WidgetRef ref) async {
+    final result = await ImportService().pickAndParse();
+    if (result == null || !context.mounted) return;
+    final page = await ref
+        .read(pagesProvider(sectionId).notifier)
+        .create(title: result.title, content: result.deltaJson);
+    if (context.mounted) {
+      ref.read(tabsProvider.notifier).openTab(TabEntry(
+        pageId: page.id,
+        sectionId: sectionId,
+        notebookId: notebookId,
+        title: page.title,
+      ));
+    }
   }
 
   Future<void> _createPage(BuildContext context, WidgetRef ref) async {

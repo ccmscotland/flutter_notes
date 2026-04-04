@@ -17,12 +17,13 @@ class PagesNotifier extends FamilyAsyncNotifier<List<NotePage>, String> {
   Future<List<NotePage>> build(String sectionId) =>
       _dao.getBySection(sectionId);
 
-  Future<NotePage> create({String title = 'Untitled'}) async {
+  Future<NotePage> create({String title = 'Untitled', String content = '[]'}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final p = NotePage(
       id: const Uuid().v4(),
       sectionId: arg,
       title: title,
+      content: content,
       createdAt: now,
       updatedAt: now,
     );
