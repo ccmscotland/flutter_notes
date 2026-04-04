@@ -22,6 +22,39 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Create google-services.json
+        run: |
+          # Use repo secret if available, otherwise write a placeholder so the
+          # build compiles. Google Sign-In will not work at runtime with the
+          # placeholder — add GOOGLE_SERVICES_JSON as a repo secret for real builds.
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+            echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+          else
+            cat > android/app/google-services.json << 'EOF'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "placeholder",
+              "storage_bucket": "placeholder.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.example.flutter_notes"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [{ "current_key": "AIzaSyPlaceholder" }],
+                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+          fi
+
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
 
