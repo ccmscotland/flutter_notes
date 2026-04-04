@@ -19,7 +19,7 @@ android/.gradle
 android/captures/
 android/gradlew
 android/gradlew.bat
-android/gradle/
+android/gradle/wrapper/gradle-wrapper-distribution.zip
 
 # Secrets
 android/app/src/main/res/raw/msal_config.json
