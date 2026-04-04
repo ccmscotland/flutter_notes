@@ -25,6 +25,14 @@ jobs:
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
 
+      - name: Fix quill_native_bridge_windows GMEM_MOVEABLE removed in win32 5.5.0
+        run: |
+          QNBW=$(find ~/.pub-cache -path "*/quill_native_bridge_windows-*/lib/quill_native_bridge_windows.dart" | head -1)
+          if [ -n "$QNBW" ]; then
+            sed -i 's/GlobalAlloc(GMEM_MOVEABLE,/GlobalAlloc(0x0002,/g' "$QNBW"
+            echo "Patched GMEM_MOVEABLE in $QNBW"
+          fi
+
       - name: Fix msal_flutter missing namespace
         run: |
           MSAL_BUILD=$(find ~/.pub-cache -path "*/msal_flutter-*/android/build.gradle" | head -1)
