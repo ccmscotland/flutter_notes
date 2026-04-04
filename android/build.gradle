@@ -25,6 +25,10 @@ subprojects {
 gradle.afterProject { p ->
     if (p.hasProperty('android') && p.name == 'msal_flutter') {
         p.android.compileSdkVersion 35
+        p.android.compileOptions {
+            sourceCompatibility JavaVersion.VERSION_17
+            targetCompatibility JavaVersion.VERSION_17
+        }
     }
 }
 
