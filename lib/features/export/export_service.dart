@@ -10,6 +10,9 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
+import 'package:intl/intl.dart';
+
+import '../../core/database/notebooks_dao.dart';
 import '../../core/database/page_assets_dao.dart';
 import '../../core/database/pages_dao.dart';
 import '../../core/database/sections_dao.dart';
@@ -37,13 +40,16 @@ extension ExportFormatExt on ExportFormat {
 
 class ExportService {
   ExportService({
+    NotebooksDao? notebooksDao,
     PagesDao? pagesDao,
     SectionsDao? sectionsDao,
     PageAssetsDao? assetsDao,
-  })  : _pagesDao = pagesDao ?? PagesDao(),
+  })  : _notebooksDao = notebooksDao ?? NotebooksDao(),
+        _pagesDao = pagesDao ?? PagesDao(),
         _sectionsDao = sectionsDao ?? SectionsDao(),
         _assetsDao = assetsDao ?? PageAssetsDao();
 
+  final NotebooksDao _notebooksDao;
   final PagesDao _pagesDao;
   final SectionsDao _sectionsDao;
   final PageAssetsDao _assetsDao;
@@ -128,6 +134,57 @@ class ExportService {
       result = await _buildZip(files, '${_sanitise(notebook.name)}_export');
     }
     if (context.mounted) await _deliver(context, result, notebook.name);
+  }
+
+  Future<void> backupAll(BuildContext context) async {
+    final tmpDir = await getTemporaryDirectory();
+    final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+    final zipPath = p.join(tmpDir.path, 'flutter_notes_backup_$stamp.zip');
+
+    final notebooks = await _notebooksDao.getAll();
+    final allSections = <Section>[];
+    final allPages = <NotePage>[];
+    final allAssets = <PageAsset>[];
+
+    for (final nb in notebooks) {
+      final sections = await _sectionsDao.getByNotebook(nb.id);
+      for (final sec in sections) {
+        allSections.add(sec);
+        final pages = await _pagesDao.getBySection(sec.id);
+        for (final pg in pages) {
+          allPages.add(pg);
+          final assets = await _assetsDao.getByPage(pg.id);
+          allAssets.addAll(assets);
+        }
+      }
+    }
+
+    final backupJson = jsonEncode({
+      'version': 1,
+      'exported_at': DateTime.now().millisecondsSinceEpoch,
+      'notebooks': notebooks.map((n) => n.toJson()).toList(),
+      'sections': allSections.map((s) => s.toJson()).toList(),
+      'pages': allPages.map((pg) => pg.toJson()).toList(),
+      'assets': allAssets.map((a) => a.toJson()).toList(),
+    });
+
+    final jsonFile = File(p.join(tmpDir.path, 'backup.json'));
+    await jsonFile.writeAsString(backupJson, encoding: utf8);
+
+    final encoder = ZipFileEncoder();
+    encoder.create(zipPath);
+    encoder.addFile(jsonFile, 'backup.json');
+    for (final asset in allAssets) {
+      final file = File(asset.localPath);
+      if (file.existsSync()) {
+        encoder.addFile(file, 'assets/${asset.fileName}');
+      }
+    }
+    encoder.close();
+
+    if (context.mounted) {
+      await _deliver(context, File(zipPath), 'flutter_notes_backup_$stamp');
+    }
   }
 
   // ── File builders ────────────────────────────────────────────────────────

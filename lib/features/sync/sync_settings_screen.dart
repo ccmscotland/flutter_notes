@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'sync_provider.dart';
+import '../export/export_service.dart';
 
 class SyncSettingsScreen extends ConsumerWidget {
   const SyncSettingsScreen({super.key});
@@ -43,6 +44,8 @@ class SyncSettingsScreen extends ConsumerWidget {
             onSignOut: notifier.signOutOneDrive,
             onSync: sync.oneDriveSignedIn ? notifier.syncOneDrive : null,
           ),
+          const SizedBox(height: 16),
+          const _LocalBackupCard(),
           const SizedBox(height: 24),
           if (sync.lastError != null)
             Card(
@@ -68,6 +71,65 @@ class SyncSettingsScreen extends ConsumerWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _LocalBackupCard extends StatefulWidget {
+  const _LocalBackupCard();
+
+  @override
+  State<_LocalBackupCard> createState() => _LocalBackupCardState();
+}
+
+class _LocalBackupCardState extends State<_LocalBackupCard> {
+  bool _backing = false;
+
+  Future<void> _backup() async {
+    setState(() => _backing = true);
+    try {
+      await ExportService().backupAll(context);
+    } finally {
+      if (mounted) setState(() => _backing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.backup_outlined, size: 28),
+                const SizedBox(width: 12),
+                Text('Local Backup',
+                    style: Theme.of(context).textTheme.titleMedium),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Export all notes to a ZIP file saved on this device.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _backing ? null : _backup,
+              icon: _backing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.download_outlined),
+              label: Text(_backing ? 'Backing up…' : 'Backup Now'),
+            ),
+          ],
+        ),
       ),
     );
   }
