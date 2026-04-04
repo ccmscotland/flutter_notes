@@ -78,8 +78,22 @@ jobs:
 
       - run: flutter build apk --release
 
+      - name: Get version from pubspec
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //')
+          echo "name=v$VERSION" >> $GITHUB_OUTPUT
+
       - uses: actions/upload-artifact@v4
         with:
           name: release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 7
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.name }}
+          name: ${{ steps.version.outputs.name }}
+          files: build/app/outputs/flutter-apk/app-release.apk
+          generate_release_notes: true
