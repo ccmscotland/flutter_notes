@@ -1,3 +1,4 @@
+import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/page.dart';
@@ -56,7 +57,7 @@ class PageGroupsDao {
     await db.insert(
       _members,
       {'group_id': groupId, 'page_id': pageId},
-      conflictAlgorithm: 2, // IGNORE
+      conflictAlgorithm: ConflictAlgorithm.ignore,
     );
   }
 
