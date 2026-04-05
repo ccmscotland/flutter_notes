@@ -23,6 +23,7 @@ import '../export/export_service.dart';
 import '../export/export_sheet.dart';
 import 'annotate_image_screen.dart';
 import 'drawing_canvas.dart';
+import 'math_embed.dart';
 import 'table_editor_screen.dart';
 
 class EditorScreen extends ConsumerStatefulWidget {
@@ -412,6 +413,24 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       }
       _pageInkCurrentPoints = [];
     });
+  }
+
+  Future<void> _insertMath() async {
+    final result = await showDialog<MathEmbedData>(
+      context: context,
+      builder: (_) => MathEditDialog(
+        initial: const MathEmbedData(source: '', mode: MathMode.arithmetic),
+      ),
+    );
+    if (result == null || !mounted) return;
+    final controller = _controller;
+    if (controller == null) return;
+    final index = controller.selection.baseOffset;
+    final safeIndex = index < 0 ? controller.document.length - 1 : index;
+    controller.document.insert(
+      safeIndex,
+      BlockEmbed.custom(CustomBlockEmbed('math', result.toJson())),
+    );
   }
 
   Future<void> _insertTable() async {
@@ -914,6 +933,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     LocalImageEmbedBuilder(),
                     DrawingEmbedBuilder(),
                     TableEmbedBuilder(),
+                    MathEmbedBuilder(),
                   ],
                 ),
               ),
@@ -1124,6 +1144,47 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               ),
             ),
           ),
+          // Math FAB row
+          AnimatedOpacity(
+            opacity: _fabExpanded ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 150),
+            child: IgnorePointer(
+              ignoring: !_fabExpanded,
+              child: AnimatedSlide(
+                offset: _fabExpanded ? Offset.zero : const Offset(0, 0.5),
+                duration: const Duration(milliseconds: 150),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 66),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: cs.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text('Math',
+                            style: TextStyle(
+                                fontSize: 12, color: cs.onSurface)),
+                      ),
+                      const SizedBox(width: 8),
+                      FloatingActionButton.small(
+                        heroTag: 'fab_math',
+                        onPressed: () {
+                          setState(() => _fabExpanded = false);
+                          _insertMath();
+                        },
+                        tooltip: 'Insert Math',
+                        child: const Icon(Icons.calculate_outlined),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
           // Main FAB
           FloatingActionButton(
             heroTag: 'fab_main',
@@ -1155,6 +1216,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     onShowBackground: _showBackgroundPicker,
                     onShowPageSize: _showPageSizePicker,
                     onInsertTable: _showTableInsertOptions,
+                    onInsertMath: _insertMath,
                   ),
                 ),
                 const Divider(height: 1),
@@ -2756,12 +2818,14 @@ class _TabbedToolbar extends StatefulWidget {
     required this.onShowBackground,
     required this.onShowPageSize,
     required this.onInsertTable,
+    required this.onInsertMath,
   });
 
   final QuillController controller;
   final VoidCallback onShowBackground;
   final VoidCallback onShowPageSize;
   final VoidCallback onInsertTable;
+  final VoidCallback onInsertMath;
 
   @override
   State<_TabbedToolbar> createState() => _TabbedToolbarState();
@@ -2769,7 +2833,7 @@ class _TabbedToolbar extends StatefulWidget {
 
 class _TabbedToolbarState extends State<_TabbedToolbar> {
   int _tab = 0;
-  static const _tabLabels = ['Format', 'Lists', 'Edit', 'Page', 'Table'];
+  static const _tabLabels = ['Format', 'Lists', 'Edit', 'Page', 'Table', 'Math'];
 
   @override
   Widget build(BuildContext context) {
@@ -2886,6 +2950,19 @@ class _TabbedToolbarState extends State<_TabbedToolbar> {
             icon: Icons.table_chart_outlined,
             label: 'Insert Table',
             onTap: widget.onInsertTable,
+          ),
+        ];
+      case 5: // Math: insert calculation / LaTeX
+        return [
+          _ToolbarActionButton(
+            icon: Icons.calculate_outlined,
+            label: 'Calculate',
+            onTap: widget.onInsertMath,
+          ),
+          _ToolbarActionButton(
+            icon: Icons.functions_outlined,
+            label: 'LaTeX',
+            onTap: widget.onInsertMath,
           ),
         ];
       default:
