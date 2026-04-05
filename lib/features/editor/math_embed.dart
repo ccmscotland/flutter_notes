@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:math_expressions/math_expressions.dart';
 
@@ -38,13 +37,21 @@ class _MathWidget extends StatelessWidget {
 
     Widget content;
     if (data.mode == MathMode.latex) {
-      content = Math.tex(
-        data.source,
-        textStyle: TextStyle(fontSize: 16, color: cs.onSurface),
-        onErrorFallback: (e) => Text(
-          data.source,
-          style: TextStyle(color: cs.error, fontFamily: 'monospace'),
-        ),
+      // Display LaTeX source in styled monospace — no renderer dependency.
+      content = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.functions_outlined, size: 16, color: cs.primary),
+          const SizedBox(width: 6),
+          Text(
+            data.source,
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 14,
+              color: cs.onSurface,
+            ),
+          ),
+        ],
       );
     } else {
       // arithmetic mode — show "expression = result"
@@ -233,7 +240,7 @@ class _MathEditDialogState extends State<MathEditDialog> {
               decoration: InputDecoration(
                 labelText: _mode == MathMode.arithmetic
                     ? 'Expression  (e.g. (12 + 8) * 3 / 4)'
-                    : r'LaTeX  (e.g. \frac{a}{b} + \sqrt{x})',
+                    : r'LaTeX source  (e.g. \frac{a}{b} + \sqrt{x})',
                 border: const OutlineInputBorder(),
                 isDense: true,
               ),
@@ -295,13 +302,22 @@ class _MathEditDialogState extends State<MathEditDialog> {
 
   Widget _buildPreview(ColorScheme cs) {
     if (_mode == MathMode.latex) {
-      return Math.tex(
-        _preview,
-        textStyle: TextStyle(fontSize: 16, color: cs.onSurface),
-        onErrorFallback: (e) => Text(
-          'Invalid LaTeX',
-          style: TextStyle(color: cs.error),
-        ),
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.functions_outlined, size: 16, color: cs.primary),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              _preview,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 14,
+                color: cs.onSurface,
+              ),
+            ),
+          ),
+        ],
       );
     }
     final result = _evaluate(_preview);

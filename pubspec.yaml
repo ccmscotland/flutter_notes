@@ -39,7 +39,6 @@ dependencies:
   html: ^0.15.0
   syncfusion_flutter_pdf: ^27.2.0
   smb_connect: ^0.0.9
-  flutter_math_fork: ^0.7.2
   math_expressions: ^2.6.0
 
 dev_dependencies:
