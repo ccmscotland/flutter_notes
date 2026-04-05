@@ -18,6 +18,7 @@ import '../../core/database/page_assets_dao.dart';
 import '../../core/database/page_groups_dao.dart';
 import '../../core/database/pages_dao.dart';
 import '../../core/database/sections_dao.dart';
+import '../sync/settings_backup.dart';
 import '../../core/models/notebook.dart';
 import '../../core/models/page.dart';
 import '../../core/models/page_asset.dart';
@@ -285,6 +286,13 @@ class ExportService {
         encoder.addFile(file, 'assets/${asset.fileName}');
       }
     }
+
+    // Settings
+    final settingsJson = await SettingsBackup.export();
+    final sFile = File(p.join(tmpDir.path, 'settings.json'));
+    await sFile.writeAsString(settingsJson, encoding: utf8);
+    encoder.addFile(sFile, 'settings.json');
+
     encoder.close();
 
     if (context.mounted) {
@@ -292,21 +300,25 @@ class ExportService {
     }
   }
 
-  /// Restores a backup created by [backupAll].
-  /// Reads the manifest, recreates notebooks/sections, and imports each page.
+  /// Restores a backup created by [backupAll] — picks a ZIP via file picker.
   Future<RestoreResult> restoreBackup(BuildContext context) async {
-    // Pick backup ZIP
+    try {
+      final result = await _pickZip();
+      if (result == null) return const RestoreResult(restored: 0, skipped: 0);
+      final archive = ZipDecoder().decodeBytes(Uint8List.fromList(result.$1));
+      return restoreBackupFromArchive(archive);
+    } catch (e) {
+      return RestoreResult(restored: 0, skipped: 0, error: e.toString());
+    }
+  }
+
+  /// Restores from an already-decoded [archive].
+  /// Called both by [restoreBackup] and the SMB restore path.
+  Future<RestoreResult> restoreBackupFromArchive(Archive archive) async {
     int restored = 0;
     int skipped  = 0;
 
     try {
-      // Reuse FilePicker via file_picker package
-      final result = await _pickZip();
-      if (result == null) return const RestoreResult(restored: 0, skipped: 0);
-
-      final bytes   = result.$1;
-      final archive = ZipDecoder().decodeBytes(bytes);
-
       // Find manifest
       final manifestEntry =
           archive.files.firstWhere((f) => f.name == 'manifest.json');
@@ -315,12 +327,12 @@ class ExportService {
 
       if ((manifest['version'] as int? ?? 1) < 2) {
         return const RestoreResult(
-            restored: 0, skipped: 0, error: 'Old backup format — not supported for restore');
+            restored: 0, skipped: 0,
+            error: 'Old backup format — not supported for restore');
       }
 
       for (final nbData
           in (manifest['notebooks'] as List).cast<Map<String, dynamic>>()) {
-        // Create or reuse notebook
         final existingNb = await _notebooksDao.getById(nbData['id'] as String);
         if (existingNb == null) {
           await _notebooksDao.insert(Notebook(
@@ -357,13 +369,10 @@ class ExportService {
             if (entry == null) { skipped++; continue; }
 
             final mdContent = utf8.decode(entry.content as List<int>);
-            // Strip leading "# Title\n\n" added by backupAll
             final bodyLines = mdContent.split('\n');
             final body = bodyLines.length > 2
                 ? bodyLines.skip(2).join('\n')
                 : mdContent;
-
-            // Convert Markdown back to Delta via ImportService
             final deltaJson = _markdownToDelta(body);
 
             final existing = await _pagesDao.getById(pgData['id'] as String);
@@ -383,6 +392,16 @@ class ExportService {
           }
         }
       }
+
+      // Restore settings if present
+      final settingsEntry = archive.files
+          .cast<ArchiveFile?>()
+          .firstWhere((f) => f?.name == 'settings.json', orElse: () => null);
+      if (settingsEntry != null) {
+        final settingsJson = utf8.decode(settingsEntry.content as List<int>);
+        await SettingsBackup.import(settingsJson);
+      }
+
       return RestoreResult(restored: restored, skipped: skipped);
     } catch (e) {
       return RestoreResult(restored: restored, skipped: skipped, error: e.toString());

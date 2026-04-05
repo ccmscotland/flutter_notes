@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'smb_config.dart';
 import 'smb_sync_service.dart';
 
@@ -21,12 +22,15 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
   bool _passVisible = false;
 
   // ── State ───────────────────────────────────────────────────────────────────
-  bool _loadingTree  = false;
-  bool _syncing      = false;
-  bool _testingConn  = false;
+  bool _loadingTree    = false;
+  bool _syncing        = false;
+  bool _testingConn    = false;
+  bool _backingUp      = false;
+  bool _loadingBackups = false;
   String? _statusMsg;
   bool _statusOk = true;
   SmbSyncTree? _tree;
+  List<String> _remoteBackups = [];
 
   // ── Selection ───────────────────────────────────────────────────────────────
   // null entry means "all children selected"
@@ -129,6 +133,62 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
       _statusMsg = result.success
           ? 'Synced ${result.uploaded} page${result.uploaded == 1 ? '' : 's'} successfully'
           : 'Sync failed: ${result.error}';
+    });
+  }
+
+  // ── Backup / restore ────────────────────────────────────────────────────────
+
+  Future<void> _backupToSmb() async {
+    await _saveConfig();
+    setState(() { _backingUp = true; _statusMsg = null; });
+    final result = await SmbSyncService(_currentConfig()).backupToSmb();
+    if (!mounted) return;
+    setState(() {
+      _backingUp = false;
+      _statusOk  = result.success;
+      _statusMsg = result.success
+          ? 'Backup saved to share successfully'
+          : 'Backup failed: ${result.error}';
+    });
+    if (result.success) _loadRemoteBackups();
+  }
+
+  Future<void> _loadRemoteBackups() async {
+    setState(() => _loadingBackups = true);
+    final names = await SmbSyncService(_currentConfig()).listSmbBackups();
+    if (!mounted) return;
+    setState(() { _remoteBackups = names; _loadingBackups = false; });
+  }
+
+  Future<void> _restoreFromSmb(String fileName) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Restore Backup'),
+        content: Text('Restore "$fileName"?\n\nExisting pages with the same ID '
+            'will be skipped. Settings will be overwritten.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Restore')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() { _syncing = true; _statusMsg = null; });
+    final result =
+        await SmbSyncService(_currentConfig()).restoreBackupByName(fileName);
+    if (!mounted) return;
+    setState(() {
+      _syncing   = false;
+      _statusOk  = result.success;
+      _statusMsg = result.success
+          ? 'Restored ${result.uploaded} page${result.uploaded == 1 ? '' : 's'}'
+          : 'Restore failed: ${result.error}';
     });
   }
 
@@ -338,6 +398,95 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
                 ],
               ),
             ),
+
+          // ── Backup card ───────────────────────────────────────────────────
+          _SectionCard(
+            title: 'Backup to Share',
+            icon: Icons.backup_outlined,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Save a full backup (notes + settings) to '
+                  '\\\\${_host.text.trim()}\\${_share.text.trim()}\\'
+                  '${_base.text.trim().isNotEmpty ? '${_base.text.trim()}\\' : ''}'
+                  '_backups\\ on the share.',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: (_backingUp || _tree == null)
+                          ? null
+                          : _backupToSmb,
+                      icon: _backingUp
+                          ? const SizedBox(
+                              width: 16, height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.cloud_upload_outlined, size: 18),
+                      label: Text(_backingUp ? 'Backing up…' : 'Backup Now'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: (_loadingBackups || _tree == null)
+                          ? null
+                          : _loadRemoteBackups,
+                      icon: _loadingBackups
+                          ? const SizedBox(
+                              width: 16, height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.refresh, size: 18),
+                      label: const Text('List Backups'),
+                    ),
+                  ],
+                ),
+                if (_remoteBackups.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text('Available backups:',
+                      style: Theme.of(context).textTheme.labelSmall),
+                  const SizedBox(height: 4),
+                  ..._remoteBackups.map((name) {
+                    // Parse stamp from flutter_notes_backup_YYYYMMDD_HHmmss.zip
+                    final stamp = name
+                        .replaceFirst('flutter_notes_backup_', '')
+                        .replaceFirst('.zip', '');
+                    String label = stamp;
+                    try {
+                      final dt = DateFormat('yyyyMMdd_HHmmss').parse(stamp);
+                      label = DateFormat('MMM d yyyy, HH:mm').format(dt);
+                    } catch (_) {}
+                    return ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.archive_outlined, size: 18),
+                      title: Text(label, style: const TextStyle(fontSize: 13)),
+                      subtitle: Text(name,
+                          style: TextStyle(
+                              fontSize: 11, color: cs.onSurfaceVariant)),
+                      trailing: TextButton(
+                        onPressed: () => _restoreFromSmb(name),
+                        child: const Text('Restore'),
+                      ),
+                    );
+                  }),
+                ],
+                if (_tree == null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Test connection first to enable backup.',
+                      style: TextStyle(
+                          fontSize: 12, color: cs.onSurfaceVariant),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
 
           // ── Selection card ────────────────────────────────────────────────
           _SectionCard(
