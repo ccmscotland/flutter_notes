@@ -143,7 +143,7 @@ class SmbSyncService {
         host:     config.host,
         username: config.username,
         password: config.password,
-        domain:   config.domain.isNotEmpty ? config.domain : null,
+        domain:   config.domain.isNotEmpty ? config.domain : '',
       );
 
   String _sanitize(String s) =>
