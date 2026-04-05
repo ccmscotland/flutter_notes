@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'smb_sync_screen.dart';
 import 'sync_provider.dart';
 import '../export/export_service.dart';
 
@@ -45,6 +46,8 @@ class SyncSettingsScreen extends ConsumerWidget {
             onSync: sync.oneDriveSignedIn ? notifier.syncOneDrive : null,
           ),
           const SizedBox(height: 16),
+          const _SmbSyncCard(),
+          const SizedBox(height: 16),
           const _LocalBackupCard(),
           const SizedBox(height: 24),
           if (sync.lastError != null)
@@ -76,6 +79,46 @@ class SyncSettingsScreen extends ConsumerWidget {
   }
 }
 
+class _SmbSyncCard extends StatelessWidget {
+  const _SmbSyncCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.storage_outlined, size: 28),
+                const SizedBox(width: 12),
+                Text('SMB / Network Share',
+                    style: Theme.of(context).textTheme.titleMedium),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Sync notes to a Windows share, NAS, or Samba server.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => const Dialog.fullscreen(child: SmbSyncScreen()),
+              ),
+              icon: const Icon(Icons.lan_outlined),
+              label: const Text('Configure SMB Sync'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LocalBackupCard extends StatefulWidget {
   const _LocalBackupCard();
 
@@ -84,7 +127,8 @@ class _LocalBackupCard extends StatefulWidget {
 }
 
 class _LocalBackupCardState extends State<_LocalBackupCard> {
-  bool _backing = false;
+  bool _backing   = false;
+  bool _restoring = false;
 
   Future<void> _backup() async {
     setState(() => _backing = true);
@@ -95,8 +139,26 @@ class _LocalBackupCardState extends State<_LocalBackupCard> {
     }
   }
 
+  Future<void> _restore() async {
+    setState(() => _restoring = true);
+    try {
+      final result = await ExportService().restoreBackup(context);
+      if (!mounted) return;
+      final msg = result.error != null
+          ? 'Restore failed: ${result.error}'
+          : 'Restored ${result.restored} page${result.restored == 1 ? '' : 's'}'
+              '${result.skipped > 0 ? ' (${result.skipped} skipped)' : ''}';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg)),
+      );
+    } finally {
+      if (mounted) setState(() => _restoring = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final busy = _backing || _restoring;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -113,20 +175,36 @@ class _LocalBackupCardState extends State<_LocalBackupCard> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Export all notes to a ZIP file saved on this device.',
+              'Export all notes to a ZIP file (Markdown + manifest). '
+              'The backup can be fully restored from this screen.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _backing ? null : _backup,
-              icon: _backing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.download_outlined),
-              label: Text(_backing ? 'Backing up…' : 'Backup Now'),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: busy ? null : _backup,
+                  icon: _backing
+                      ? const SizedBox(
+                          width: 16, height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download_outlined),
+                  label: Text(_backing ? 'Backing up…' : 'Backup Now'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: busy ? null : _restore,
+                  icon: _restoring
+                      ? const SizedBox(
+                          width: 16, height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.restore_outlined),
+                  label: Text(_restoring ? 'Restoring…' : 'Restore Backup'),
+                ),
+              ],
             ),
           ],
         ),

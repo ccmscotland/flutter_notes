@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -24,6 +25,18 @@ import 'delta_converter.dart';
 
 enum ExportFormat { pdf, html, markdown }
 enum MultiPageOutput { merged, zip }
+
+class RestoreResult {
+  final int restored;
+  final int skipped;
+  final String? error;
+
+  const RestoreResult({
+    required this.restored,
+    required this.skipped,
+    this.error,
+  });
+}
 
 extension ExportFormatExt on ExportFormat {
   String get extension => switch (this) {
@@ -136,44 +149,90 @@ class ExportService {
     if (context.mounted) await _deliver(context, result, notebook.name);
   }
 
+  /// Exports all notes as a human-readable ZIP (Markdown + manifest).
+  /// The ZIP can be fully restored via [restoreBackup].
   Future<void> backupAll(BuildContext context) async {
     final tmpDir = await getTemporaryDirectory();
-    final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+    final stamp  = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
     final zipPath = p.join(tmpDir.path, 'flutter_notes_backup_$stamp.zip');
 
-    final notebooks = await _notebooksDao.getAll();
-    final allSections = <Section>[];
-    final allPages = <NotePage>[];
-    final allAssets = <PageAsset>[];
+    final notebooks  = await _notebooksDao.getAll();
+    final allAssets  = <PageAsset>[];
+
+    // Build manifest structure + per-page Markdown files
+    final manifestNotebooks = <Map<String, dynamic>>[];
+    final pageFiles          = <String, String>{}; // zip path → content
 
     for (final nb in notebooks) {
-      final sections = await _sectionsDao.getByNotebook(nb.id);
+      final sections     = await _sectionsDao.getByNotebook(nb.id);
+      final manifestSecs = <Map<String, dynamic>>[];
+
       for (final sec in sections) {
-        allSections.add(sec);
-        final pages = await _pagesDao.getBySection(sec.id);
+        final pages       = await _pagesDao.getBySection(sec.id);
+        final manifestPgs = <Map<String, dynamic>>[];
+
         for (final pg in pages) {
-          allPages.add(pg);
+          final safePg   = _sanitise(pg.title);
+          final safeSec  = _sanitise(sec.name);
+          final safeNb   = _sanitise(nb.name);
+          final filePath = '$safeNb/$safeSec/$safePg.md';
+
+          // Markdown content — readable in any editor
+          final ops = _parseOps(pg.content);
+          final md  = '# ${pg.title}\n\n${DeltaConverter.toMarkdown(ops)}\n';
+          pageFiles[filePath] = md;
+
           final assets = await _assetsDao.getByPage(pg.id);
           allAssets.addAll(assets);
+
+          manifestPgs.add({
+            'id':         pg.id,
+            'title':      pg.title,
+            'file':       filePath,
+            'created_at': pg.createdAt,
+            'updated_at': pg.updatedAt,
+          });
         }
+        manifestSecs.add({
+          'id':    sec.id,
+          'name':  sec.name,
+          'color': sec.color,
+          'pages': manifestPgs,
+        });
       }
+      manifestNotebooks.add({
+        'id':       nb.id,
+        'name':     nb.name,
+        'color':    nb.color,
+        'sections': manifestSecs,
+      });
     }
 
-    final backupJson = jsonEncode({
-      'version': 1,
+    final manifest = jsonEncode({
+      'version':     2,
+      'format':      'markdown',
+      'app':         'flutter_notes',
       'exported_at': DateTime.now().millisecondsSinceEpoch,
-      'notebooks': notebooks.map((n) => n.toJson()).toList(),
-      'sections': allSections.map((s) => s.toJson()).toList(),
-      'pages': allPages.map((pg) => pg.toJson()).toList(),
-      'assets': allAssets.map((a) => a.toJson()).toList(),
+      'notebooks':   manifestNotebooks,
     });
 
-    final jsonFile = File(p.join(tmpDir.path, 'backup.json'));
-    await jsonFile.writeAsString(backupJson, encoding: utf8);
-
+    // Write ZIP
     final encoder = ZipFileEncoder();
     encoder.create(zipPath);
-    encoder.addFile(jsonFile, 'backup.json');
+
+    // manifest.json
+    final mFile = File(p.join(tmpDir.path, 'manifest.json'));
+    await mFile.writeAsString(manifest, encoding: utf8);
+    encoder.addFile(mFile, 'manifest.json');
+
+    // Page Markdown files
+    for (final entry in pageFiles.entries) {
+      final f = File(p.join(tmpDir.path, 'pg_${entry.key.hashCode}.md'));
+      await f.writeAsString(entry.value, encoding: utf8);
+      encoder.addFile(f, entry.key);
+    }
+
+    // Assets
     for (final asset in allAssets) {
       final file = File(asset.localPath);
       if (file.existsSync()) {
@@ -185,6 +244,145 @@ class ExportService {
     if (context.mounted) {
       await _deliver(context, File(zipPath), 'flutter_notes_backup_$stamp');
     }
+  }
+
+  /// Restores a backup created by [backupAll].
+  /// Reads the manifest, recreates notebooks/sections, and imports each page.
+  Future<RestoreResult> restoreBackup(BuildContext context) async {
+    // Pick backup ZIP
+    int restored = 0;
+    int skipped  = 0;
+
+    try {
+      // Reuse FilePicker via file_picker package
+      final result = await _pickZip();
+      if (result == null) return const RestoreResult(restored: 0, skipped: 0);
+
+      final bytes   = result.$1;
+      final archive = ZipDecoder().decodeBytes(bytes);
+
+      // Find manifest
+      final manifestEntry =
+          archive.files.firstWhere((f) => f.name == 'manifest.json');
+      final manifestJson = utf8.decode(manifestEntry.content as List<int>);
+      final manifest     = jsonDecode(manifestJson) as Map<String, dynamic>;
+
+      if ((manifest['version'] as int? ?? 1) < 2) {
+        return const RestoreResult(
+            restored: 0, skipped: 0, error: 'Old backup format — not supported for restore');
+      }
+
+      for (final nbData
+          in (manifest['notebooks'] as List).cast<Map<String, dynamic>>()) {
+        // Create or reuse notebook
+        final existingNb = await _notebooksDao.getById(nbData['id'] as String);
+        if (existingNb == null) {
+          await _notebooksDao.insert(Notebook(
+            id:        nbData['id'] as String,
+            name:      nbData['name'] as String,
+            color:     (nbData['color'] as num).toInt(),
+            createdAt: DateTime.now().millisecondsSinceEpoch,
+            updatedAt: DateTime.now().millisecondsSinceEpoch,
+          ));
+        }
+
+        for (final secData
+            in (nbData['sections'] as List).cast<Map<String, dynamic>>()) {
+          final existingSec =
+              await _sectionsDao.getById(secData['id'] as String);
+          if (existingSec == null) {
+            await _sectionsDao.insert(Section(
+              id:         secData['id'] as String,
+              notebookId: nbData['id'] as String,
+              name:       secData['name'] as String,
+              color:      (secData['color'] as num).toInt(),
+              createdAt:  DateTime.now().millisecondsSinceEpoch,
+              updatedAt:  DateTime.now().millisecondsSinceEpoch,
+            ));
+          }
+
+          for (final pgData
+              in (secData['pages'] as List).cast<Map<String, dynamic>>()) {
+            final filePath = pgData['file'] as String;
+            final entry    = archive.files
+                .cast<ArchiveFile?>()
+                .firstWhere((f) => f?.name == filePath, orElse: () => null);
+
+            if (entry == null) { skipped++; continue; }
+
+            final mdContent = utf8.decode(entry.content as List<int>);
+            // Strip leading "# Title\n\n" added by backupAll
+            final bodyLines = mdContent.split('\n');
+            final body = bodyLines.length > 2
+                ? bodyLines.skip(2).join('\n')
+                : mdContent;
+
+            // Convert Markdown back to Delta via ImportService
+            final deltaJson = _markdownToDelta(body);
+
+            final existing = await _pagesDao.getById(pgData['id'] as String);
+            if (existing == null) {
+              await _pagesDao.insert(NotePage(
+                id:        pgData['id'] as String,
+                sectionId: secData['id'] as String,
+                title:     pgData['title'] as String,
+                content:   deltaJson,
+                createdAt: (pgData['created_at'] as num).toInt(),
+                updatedAt: (pgData['updated_at'] as num).toInt(),
+              ));
+              restored++;
+            } else {
+              skipped++;
+            }
+          }
+        }
+      }
+      return RestoreResult(restored: restored, skipped: skipped);
+    } catch (e) {
+      return RestoreResult(restored: restored, skipped: skipped, error: e.toString());
+    }
+  }
+
+  // Simple Markdown → Delta for restore (mirrors ImportService logic
+  // without the extra dependency).
+  String _markdownToDelta(String markdown) {
+    final ops = <Map<String, dynamic>>[];
+    for (final line in markdown.split('\n')) {
+      if (line.startsWith('### ')) {
+        ops.add({'insert': line.substring(4)});
+        ops.add({'insert': '\n', 'attributes': {'header': 3}});
+      } else if (line.startsWith('## ')) {
+        ops.add({'insert': line.substring(3)});
+        ops.add({'insert': '\n', 'attributes': {'header': 2}});
+      } else if (line.startsWith('# ')) {
+        ops.add({'insert': line.substring(2)});
+        ops.add({'insert': '\n', 'attributes': {'header': 1}});
+      } else if (line.startsWith('- ') || line.startsWith('* ')) {
+        ops.add({'insert': line.substring(2)});
+        ops.add({'insert': '\n', 'attributes': {'list': 'bullet'}});
+      } else if (line.startsWith('> ')) {
+        ops.add({'insert': line.substring(2)});
+        ops.add({'insert': '\n', 'attributes': {'blockquote': true}});
+      } else {
+        ops.add({'insert': line});
+        ops.add({'insert': '\n'});
+      }
+    }
+    if (ops.isEmpty) ops.add({'insert': '\n'});
+    return jsonEncode(ops);
+  }
+
+  Future<(List<int>, String)?> _pickZip() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['zip'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return null;
+    final file = result.files.first;
+    final bytes = file.bytes;
+    if (bytes == null) return null;
+    return (bytes.toList(), file.name);
   }
 
   // ── File builders ────────────────────────────────────────────────────────
