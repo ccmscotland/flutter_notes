@@ -10,6 +10,7 @@ import '../../features/tabs/tabs_provider.dart';
 import '../providers/nav_state_provider.dart';
 import '../utils/responsive.dart';
 import 'browse_pane.dart';
+import '../../features/groups/groups_screen.dart';
 import '../../features/sync/sync_settings_screen.dart';
 
 /// Root shell widget provided to go_router's ShellRoute.
@@ -334,6 +335,14 @@ class _RailFooter extends ConsumerWidget {
               }
             },
           ),
+        IconButton(
+          icon: const Icon(Icons.collections_bookmark_outlined),
+          tooltip: 'Collections',
+          onPressed: () => showDialog<void>(
+            context: context,
+            builder: (_) => const Dialog.fullscreen(child: GroupsScreen()),
+          ),
+        ),
         IconButton(
           icon: const Icon(Icons.search),
           tooltip: 'Search',

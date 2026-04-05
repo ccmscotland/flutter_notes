@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../core/models/page.dart';
+import '../../core/models/page_group.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../export/export_service.dart';
 import '../export/export_sheet.dart';
+import '../groups/groups_provider.dart';
 import '../import/import_service.dart';
 import '../sections/sections_provider.dart';
 import '../tabs/tabs_provider.dart';
@@ -157,7 +159,7 @@ class PagesList extends ConsumerWidget {
   }
 }
 
-class _PageTile extends StatelessWidget {
+class _PageTile extends ConsumerWidget {
   final NotePage page;
   final VoidCallback onTap;
   final VoidCallback onExport;
@@ -173,7 +175,7 @@ class _PageTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final updated = DateTime.fromMillisecondsSinceEpoch(page.updatedAt);
     final formatted = DateFormat('MMM d, yyyy').format(updated);
     final cs = Theme.of(context).colorScheme;
@@ -208,6 +210,14 @@ class _PageTile extends StatelessWidget {
               ]),
             ),
             const PopupMenuItem(
+              value: 'group',
+              child: Row(children: [
+                Icon(Icons.collections_bookmark_outlined, size: 18),
+                SizedBox(width: 8),
+                Text('Add to collection'),
+              ]),
+            ),
+            const PopupMenuItem(
               value: 'export',
               child: Row(children: [
                 Icon(Icons.ios_share_outlined, size: 18),
@@ -227,12 +237,67 @@ class _PageTile extends StatelessWidget {
           ],
           onSelected: (val) {
             if (val == 'rename') _showRenameDialog(context);
+            if (val == 'group') _showGroupPicker(context, ref);
             if (val == 'export') onExport();
             if (val == 'delete') onDelete();
           },
         ),
         onTap: onTap,
         onLongPress: onExport,
+      ),
+    );
+  }
+
+  Future<void> _showGroupPicker(BuildContext context, WidgetRef ref) async {
+    final notifier = ref.read(groupsProvider.notifier);
+    final groups   = await ref.read(groupsProvider.future);
+    final memberOf = (await notifier.getGroupIdsForPage(page.id)).toSet();
+
+    if (!context.mounted) return;
+
+    if (groups.isEmpty) {
+      // No groups yet — offer to create one inline
+      final ctrl = TextEditingController();
+      final name = await showDialog<String>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('New Collection'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Collection name'),
+            onSubmitted: (v) => Navigator.pop(context, v.trim()),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+                child: const Text('Create')),
+          ],
+        ),
+      );
+      ctrl.dispose();
+      if (name != null && name.isNotEmpty) {
+        final g = await notifier.create(name);
+        await notifier.addPage(g.id, page.id);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Added to "${g.name}"')),
+          );
+        }
+      }
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _GroupPickerDialog(
+        groups: groups,
+        memberOf: memberOf,
+        pageId: page.id,
+        notifier: notifier,
       ),
     );
   }
@@ -263,6 +328,79 @@ class _PageTile extends StatelessWidget {
     );
     ctrl.dispose();
     if (result != null && result.isNotEmpty) onRename(result);
+  }
+}
+
+// ── Group picker dialog ────────────────────────────────────────────────────────
+
+class _GroupPickerDialog extends StatefulWidget {
+  final List<PageGroup> groups;
+  final Set<String> memberOf;
+  final String pageId;
+  final GroupsNotifier notifier;
+
+  const _GroupPickerDialog({
+    required this.groups,
+    required this.memberOf,
+    required this.pageId,
+    required this.notifier,
+  });
+
+  @override
+  State<_GroupPickerDialog> createState() => _GroupPickerDialogState();
+}
+
+class _GroupPickerDialogState extends State<_GroupPickerDialog> {
+  late final Set<String> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = Set.of(widget.memberOf);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add to collection'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ListView(
+          shrinkWrap: true,
+          children: widget.groups.map((g) => CheckboxListTile(
+            value: _selected.contains(g.id),
+            onChanged: (v) => setState(() {
+              if (v == true) _selected.add(g.id);
+              else _selected.remove(g.id);
+            }),
+            title: Text(g.name),
+            dense: true,
+            controlAffinity: ListTileControlAffinity.leading,
+          )).toList(),
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () async {
+            // Add to newly checked groups, remove from unchecked ones
+            for (final g in widget.groups) {
+              final wasIn = widget.memberOf.contains(g.id);
+              final isIn  = _selected.contains(g.id);
+              if (!wasIn && isIn) {
+                await widget.notifier.addPage(g.id, widget.pageId);
+              } else if (wasIn && !isIn) {
+                await widget.notifier.removePage(g.id, widget.pageId);
+              }
+            }
+            if (context.mounted) Navigator.pop(context);
+          },
+          child: const Text('Done'),
+        ),
+      ],
+    );
   }
 }
 

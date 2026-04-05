@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/models/notebook.dart';
+import '../groups/groups_screen.dart';
 import '../sync/sync_settings_screen.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../shared/utils/responsive.dart';
@@ -22,6 +23,14 @@ class NotebooksScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Notebooks'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.collections_bookmark_outlined),
+            tooltip: 'Collections',
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => const Dialog.fullscreen(child: GroupsScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () => context.push('/search'),

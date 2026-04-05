@@ -3,7 +3,7 @@ import 'package:path/path.dart';
 
 class DatabaseHelper {
   static const _dbName = 'flutter_notes.db';
-  static const _dbVersion = 6;
+  static const _dbVersion = 7;
 
   DatabaseHelper._();
   static final DatabaseHelper instance = DatabaseHelper._();
@@ -96,11 +96,29 @@ class DatabaseHelper {
       )
     ''');
 
+    await db.execute('''
+      CREATE TABLE page_groups (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE page_group_members (
+        group_id TEXT NOT NULL,
+        page_id TEXT NOT NULL,
+        PRIMARY KEY (group_id, page_id)
+      )
+    ''');
+
     // Indexes for common queries
     await db.execute('CREATE INDEX idx_sections_notebook ON sections(notebook_id)');
     await db.execute('CREATE INDEX idx_pages_section ON pages(section_id)');
     await db.execute('CREATE INDEX idx_sync_entity ON sync_records(entity_id, provider)');
     await db.execute('CREATE INDEX idx_assets_page ON page_assets(page_id)');
+    await db.execute('CREATE INDEX idx_group_members ON page_group_members(group_id)');
+    await db.execute('CREATE INDEX idx_page_groups ON page_group_members(page_id)');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -144,6 +162,22 @@ class DatabaseHelper {
     if (oldVersion < 6) {
       await db.execute(
           "ALTER TABLE pages ADD COLUMN ink_strokes TEXT DEFAULT ''");
+    }
+    if (oldVersion < 7) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS page_groups (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS page_group_members (
+          group_id TEXT NOT NULL,
+          page_id TEXT NOT NULL,
+          PRIMARY KEY (group_id, page_id)
+        )
+      ''');
     }
   }
 }

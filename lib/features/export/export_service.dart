@@ -15,11 +15,13 @@ import 'package:intl/intl.dart';
 
 import '../../core/database/notebooks_dao.dart';
 import '../../core/database/page_assets_dao.dart';
+import '../../core/database/page_groups_dao.dart';
 import '../../core/database/pages_dao.dart';
 import '../../core/database/sections_dao.dart';
 import '../../core/models/notebook.dart';
 import '../../core/models/page.dart';
 import '../../core/models/page_asset.dart';
+import '../../core/models/page_group.dart';
 import '../../core/models/section.dart';
 import 'delta_converter.dart';
 
@@ -57,15 +59,18 @@ class ExportService {
     PagesDao? pagesDao,
     SectionsDao? sectionsDao,
     PageAssetsDao? assetsDao,
+    PageGroupsDao? groupsDao,
   })  : _notebooksDao = notebooksDao ?? NotebooksDao(),
         _pagesDao = pagesDao ?? PagesDao(),
         _sectionsDao = sectionsDao ?? SectionsDao(),
-        _assetsDao = assetsDao ?? PageAssetsDao();
+        _assetsDao = assetsDao ?? PageAssetsDao(),
+        _groupsDao = groupsDao ?? PageGroupsDao();
 
   final NotebooksDao _notebooksDao;
   final PagesDao _pagesDao;
   final SectionsDao _sectionsDao;
   final PageAssetsDao _assetsDao;
+  final PageGroupsDao _groupsDao;
 
   // ── Public entry points ──────────────────────────────────────────────────
 
@@ -147,6 +152,47 @@ class ExportService {
       result = await _buildZip(files, '${_sanitise(notebook.name)}_export');
     }
     if (context.mounted) await _deliver(context, result, notebook.name);
+  }
+
+  /// Exports all pages in [group] as a single document or ZIP.
+  Future<void> exportGroup(
+    BuildContext context,
+    PageGroup group,
+    ExportFormat fmt,
+    MultiPageOutput output,
+  ) async {
+    final pages = await _groupsDao.resolvePages(group.id);
+    if (pages.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('This collection has no pages.')),
+        );
+      }
+      return;
+    }
+
+    final assetMap = <String, List<PageAsset>>{};
+    for (final pg in pages) {
+      assetMap[pg.id] = await _assetsDao.getByPage(pg.id);
+    }
+
+    final File result;
+    if (output == MultiPageOutput.merged) {
+      result = await _mergeToFile(
+        name: group.name,
+        pages: pages,
+        assetMap: assetMap,
+        fmt: fmt,
+        sectionName: null,
+      );
+    } else {
+      final files = [
+        for (final pg in pages)
+          await _pageToFile(pg, fmt, assetMap[pg.id] ?? []),
+      ];
+      result = await _buildZip(files, '${_sanitise(group.name)}_collection');
+    }
+    if (context.mounted) await _deliver(context, result, group.name);
   }
 
   /// Exports all notes as a human-readable ZIP (Markdown + manifest).
