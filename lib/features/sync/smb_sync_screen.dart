@@ -18,6 +18,7 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
   late final TextEditingController _user;
   late final TextEditingController _pass;
   late final TextEditingController _domain;
+  late final TextEditingController _backupPath;
   String _format = 'markdown';
   bool _passVisible = false;
 
@@ -42,18 +43,19 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
   @override
   void initState() {
     super.initState();
-    _host   = TextEditingController();
-    _share  = TextEditingController();
-    _base   = TextEditingController(text: 'flutter_notes');
-    _user   = TextEditingController();
-    _pass   = TextEditingController();
-    _domain = TextEditingController();
+    _host       = TextEditingController();
+    _share      = TextEditingController();
+    _base       = TextEditingController(text: 'flutter_notes');
+    _user       = TextEditingController();
+    _pass       = TextEditingController();
+    _domain     = TextEditingController();
+    _backupPath = TextEditingController(text: '_backups');
     _loadConfig();
   }
 
   @override
   void dispose() {
-    for (final c in [_host, _share, _base, _user, _pass, _domain]) c.dispose();
+    for (final c in [_host, _share, _base, _user, _pass, _domain, _backupPath]) c.dispose();
     super.dispose();
   }
 
@@ -63,25 +65,27 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
     final cfg = await SmbConfig.load();
     if (cfg != null && mounted) {
       setState(() {
-        _host.text   = cfg.host;
-        _share.text  = cfg.share;
-        _base.text   = cfg.basePath;
-        _user.text   = cfg.username;
-        _pass.text   = cfg.password;
-        _domain.text = cfg.domain;
-        _format      = cfg.format;
+        _host.text       = cfg.host;
+        _share.text      = cfg.share;
+        _base.text       = cfg.basePath;
+        _user.text       = cfg.username;
+        _pass.text       = cfg.password;
+        _domain.text     = cfg.domain;
+        _format          = cfg.format;
+        _backupPath.text = cfg.backupPath;
       });
     }
   }
 
   SmbConfig _currentConfig() => SmbConfig(
-        host:     _host.text.trim(),
-        share:    _share.text.trim(),
-        basePath: _base.text.trim(),
-        username: _user.text.trim(),
-        password: _pass.text,
-        domain:   _domain.text.trim(),
-        format:   _format,
+        host:       _host.text.trim(),
+        share:      _share.text.trim(),
+        basePath:   _base.text.trim(),
+        username:   _user.text.trim(),
+        password:   _pass.text,
+        domain:     _domain.text.trim(),
+        format:     _format,
+        backupPath: _backupPath.text.trim(),
       );
 
   Future<void> _saveConfig() => _currentConfig().save();
@@ -407,15 +411,17 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Save a full backup (notes + settings) to '
-                  '\\\\${_host.text.trim()}\\${_share.text.trim()}\\'
-                  '${_base.text.trim().isNotEmpty ? '${_base.text.trim()}\\' : ''}'
-                  '_backups\\ on the share.',
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: cs.onSurfaceVariant),
+                  'Saves a ZIP (notes + settings) to the folder below '
+                  'on the share.',
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
+                _field(
+                  _backupPath,
+                  'Backup folder (relative to base folder)',
+                  hint: '_backups',
+                ),
+                const SizedBox(height: 4),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,

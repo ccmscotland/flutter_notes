@@ -158,7 +158,7 @@ class SmbSyncService {
       // ExportService.buildBackupZip (a non-UI path we add below).
       final zipFile = await _buildBackupZip();
 
-      final backupDir = '${_root()}/_backups';
+      final backupDir = _backupDir();
       await _ensureDirs(smb, backupDir);
 
       final remotePath = '$backupDir/${p.basename(zipFile.path)}';
@@ -179,7 +179,7 @@ class SmbSyncService {
     try {
       smb = await _connect();
 
-      final backupDir = '${_root()}/_backups';
+      final backupDir = _backupDir();
       final dirFile   = await smb.file(backupDir);
       final files     = await smb.listFiles(dirFile);
       // Find the most recent flutter_notes_backup_*.zip
@@ -217,7 +217,7 @@ class SmbSyncService {
     SmbConnect? smb;
     try {
       smb = await _connect();
-      final backupDir = '${_root()}/_backups';
+      final backupDir = _backupDir();
       final dirFile   = await smb.file(backupDir);
       final files     = await smb.listFiles(dirFile);
       final zips = files
@@ -240,7 +240,7 @@ class SmbSyncService {
     SmbConnect? smb;
     try {
       smb = await _connect();
-      final remotePath = '${_root()}/_backups/$fileName';
+      final remotePath = '${_backupDir()}/$fileName';
       final smbFile = await smb.file(remotePath);
       final stream  = await smb.openRead(smbFile);
       final bytes   = <int>[];
@@ -346,6 +346,11 @@ class SmbSyncService {
   String _root() {
     final base = config.basePath.isNotEmpty ? '/${config.basePath}' : '';
     return '/${config.share}$base';
+  }
+
+  String _backupDir() {
+    final bp = config.backupPath.trim();
+    return bp.isNotEmpty ? '${_root()}/$bp' : '${_root()}/_backups';
   }
 
   String _dirPath(String notebook, String section) =>

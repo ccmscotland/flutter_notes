@@ -16,6 +16,7 @@ class SettingsBackup {
     'smb_pass',
     'smb_domain',
     'smb_format',
+    'smb_backup_path',
   ];
 
   /// Exports current settings as a JSON string.
