@@ -1,4 +1,4 @@
-name: Build Flutter APK
+name: Build Flutter
 
 on:
   push:
@@ -9,7 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  # ── Android APK ─────────────────────────────────────────────────────────────
+  build-android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,9 +28,6 @@ jobs:
 
       - name: Create google-services.json
         run: |
-          # Use repo secret if available, otherwise write a placeholder so the
-          # build compiles. Google Sign-In will not work at runtime with the
-          # placeholder — add GOOGLE_SERVICES_JSON as a repo secret for real builds.
           if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
             echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
           else
@@ -61,7 +59,7 @@ jobs:
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
 
-      - name: Fix quill_native_bridge_windows GMEM_MOVEABLE removed in win32 5.5.0
+      - name: Fix quill_native_bridge_windows GMEM_MOVEABLE
         run: |
           QNBW=$(find ~/.pub-cache -path "*/quill_native_bridge_windows-*/lib/quill_native_bridge_windows.dart" | head -1)
           if [ -n "$QNBW" ]; then
@@ -81,22 +79,83 @@ jobs:
 
       - run: flutter build apk --release
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 7
+
+  # ── Windows EXE ─────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.x'
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Fix quill_native_bridge_windows GMEM_MOVEABLE
+        shell: pwsh
+        run: |
+          $file = Get-ChildItem -Recurse "$env:LOCALAPPDATA\Pub\Cache" `
+            -Filter "quill_native_bridge_windows.dart" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if ($file) {
+            $content = Get-Content $file.FullName -Raw
+            $patched = $content -replace 'GlobalAlloc\(GMEM_MOVEABLE,', 'GlobalAlloc(0x0002,'
+            Set-Content $file.FullName $patched
+            Write-Host "Patched GMEM_MOVEABLE in $($file.FullName)"
+          }
+
+      - run: flutter build windows --release
+
+      - name: Zip Windows build
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path "build\windows\x64\runner\Release\*" `
+            -DestinationPath "flutter_notes_windows.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: flutter_notes_windows.zip
+          retention-days: 7
+
+  # ── GitHub Release ───────────────────────────────────────────────────────────
+  release:
+    needs: [build-android, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Get version from pubspec
         id: version
         run: |
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //')
           echo "name=v$VERSION" >> $GITHUB_OUTPUT
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 7
+          name: android-apk
+          path: artifacts/
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-zip
+          path: artifacts/
+
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.name }}
           name: ${{ steps.version.outputs.name }}
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: |
+            artifacts/app-release.apk
+            artifacts/flutter_notes_windows.zip
           generate_release_notes: true
