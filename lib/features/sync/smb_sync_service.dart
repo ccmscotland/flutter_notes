@@ -180,7 +180,8 @@ class SmbSyncService {
       smb = await _connect();
 
       final backupDir = '${_root()}/_backups';
-      final files = await smb.listFiles(backupDir);
+      final dirFile   = await smb.file(backupDir);
+      final files     = await smb.listFiles(dirFile);
       // Find the most recent flutter_notes_backup_*.zip
       final zips = files
           .where((f) =>
@@ -194,14 +195,11 @@ class SmbSyncService {
       zips.sort((a, b) => b.name.compareTo(a.name)); // most recent first
       final remotePath = '$backupDir/${zips.first.name}';
 
-      // Download to temp file
-      final tmpDir = await getTemporaryDirectory();
-      final localPath = p.join(tmpDir.path, zips.first.name);
+      // Download and restore
       final smbFile = await smb.file(remotePath);
       final stream  = await smb.openRead(smbFile);
       final bytes   = <int>[];
       await for (final chunk in stream) bytes.addAll(chunk);
-      await File(localPath).writeAsBytes(bytes);
 
       // Decode and restore
       final archive = ZipDecoder().decodeBytes(Uint8List.fromList(bytes));
@@ -220,7 +218,8 @@ class SmbSyncService {
     try {
       smb = await _connect();
       final backupDir = '${_root()}/_backups';
-      final files = await smb.listFiles(backupDir);
+      final dirFile   = await smb.file(backupDir);
+      final files     = await smb.listFiles(dirFile);
       final zips = files
           .where((f) =>
               f.name.startsWith('flutter_notes_backup_') &&
