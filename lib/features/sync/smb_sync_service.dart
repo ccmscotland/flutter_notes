@@ -151,18 +151,18 @@ class SmbSyncService {
   Future<SmbSyncResult> backupToSmb() async {
     SmbConnect? smb;
     try {
+      // Build the ZIP entirely before opening the SMB connection so the
+      // connection is not left idle during the (potentially slow) DB read +
+      // archive creation, which causes "network name no longer available".
+      final zipFile = await _buildBackupZip();
+      final bytes   = await zipFile.readAsBytes();
+
       smb = await _connect();
 
-      // Build the backup ZIP locally using ExportService internals.
-      // We create a temporary BuildContext-free version by calling
-      // ExportService.buildBackupZip (a non-UI path we add below).
-      final zipFile = await _buildBackupZip();
-
-      final backupDir = _backupDir();
+      final backupDir  = _backupDir();
       await _ensureDirs(smb, backupDir);
 
       final remotePath = '$backupDir/${p.basename(zipFile.path)}';
-      final bytes = await zipFile.readAsBytes();
       await _writeFile(smb, remotePath, bytes);
 
       return SmbSyncResult(success: true, uploaded: 1);
