@@ -158,24 +158,32 @@ class PagesScreen extends ConsumerWidget {
   }
 }
 
-/// Reusable pages list — used by [PagesScreen] and [BrowsePane].
+/// Reusable pages list — used by [PagesScreen], [BrowsePane], and inline
+/// inside section expansion tiles.
 ///
 /// Handles tab-opening on tap and deletion via swipe-to-dismiss.
 class PagesList extends ConsumerWidget {
   final List<NotePage> pages;
   final String notebookId;
   final String sectionId;
+  /// Set to true when nesting inside another scroll view (e.g. expansion tile).
+  final bool shrinkWrap;
+  final ScrollPhysics? physics;
 
   const PagesList({
     super.key,
     required this.pages,
     required this.notebookId,
     required this.sectionId,
+    this.shrinkWrap = false,
+    this.physics,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ListView.builder(
+      shrinkWrap: shrinkWrap,
+      physics: physics,
       itemCount: pages.length,
       itemBuilder: (_, i) => _PageTile(
         page: pages[i],

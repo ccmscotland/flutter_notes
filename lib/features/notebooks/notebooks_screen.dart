@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../core/database/sections_dao.dart';
 import '../../core/models/notebook.dart';
 import '../groups/groups_screen.dart';
 import '../sync/sync_settings_screen.dart';
@@ -95,7 +94,7 @@ class NotebooksScreen extends ConsumerWidget {
             itemCount: notebooks.length,
             itemBuilder: (_, i) => _NotebookCard(
               notebook: notebooks[i],
-              onTap: () => _openNotebook(context, notebooks[i]),
+              onTap: () => context.push('/notebook/${notebooks[i].id}'),
               onLongPress: () =>
                   _showContextMenu(context, ref, notebooks[i]),
             ),
@@ -108,22 +107,6 @@ class NotebooksScreen extends ConsumerWidget {
         label: const Text('Notebook'),
       ),
     );
-  }
-
-  /// Opens a notebook. If it has no user-created sections, navigates directly
-  /// to its default section's pages (flat page-list mode). Otherwise shows
-  /// the sections screen.
-  Future<void> _openNotebook(BuildContext context, Notebook nb) async {
-    final dao = SectionsDao();
-    final hasUser = await dao.hasUserSections(nb.id);
-    if (!context.mounted) return;
-    if (hasUser) {
-      context.push('/notebook/${nb.id}');
-    } else {
-      final def = await dao.getOrCreateDefault(nb.id);
-      if (!context.mounted) return;
-      context.push('/notebook/${nb.id}/section/${def.id}');
-    }
   }
 
   Future<void> _showCreateDialog(BuildContext context, WidgetRef ref) async {

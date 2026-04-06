@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/models/section.dart';
@@ -9,24 +8,39 @@ import '../../shared/widgets/confirm_dialog.dart';
 import '../export/export_service.dart';
 import '../export/export_sheet.dart';
 import '../notebooks/notebooks_provider.dart';
+import '../pages/pages_provider.dart';
+import '../pages/pages_screen.dart';
+import '../tabs/tabs_provider.dart';
 import 'sections_provider.dart';
 
-class SectionsScreen extends ConsumerWidget {
+/// Shows the contents of a notebook: top-level pages directly, plus
+/// expandable sections (OneNote-style).  No separate "sections list" screen —
+/// everything is visible in one scrollable view.
+class SectionsScreen extends ConsumerStatefulWidget {
   final String notebookId;
 
   const SectionsScreen({super.key, required this.notebookId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SectionsScreen> createState() => _SectionsScreenState();
+}
+
+class _SectionsScreenState extends ConsumerState<SectionsScreen> {
+  // ── Build ──────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
     final notebookAsync  = ref.watch(notebooksProvider);
-    final sectionsAsync  = ref.watch(sectionsProvider(notebookId));
-    final defaultIdAsync = ref.watch(defaultSectionIdProvider(notebookId));
+    final sectionsAsync  = ref.watch(sectionsProvider(widget.notebookId));
+    final defaultIdAsync = ref.watch(defaultSectionIdProvider(widget.notebookId));
 
     final notebookName = notebookAsync.whenOrNull(
           data: (nbs) =>
-              nbs.where((n) => n.id == notebookId).firstOrNull?.name,
+              nbs.where((n) => n.id == widget.notebookId).firstOrNull?.name,
         ) ??
         'Notebook';
+
+    final defaultId = defaultIdAsync.valueOrNull;
 
     return Scaffold(
       appBar: AppBar(
@@ -36,151 +50,338 @@ class SectionsScreen extends ConsumerWidget {
             icon: const Icon(Icons.search),
             onPressed: () => context.push('/search'),
           ),
+          IconButton(
+            icon: const Icon(Icons.create_new_folder_outlined),
+            tooltip: 'New section',
+            onPressed: _showCreateSectionDialog,
+          ),
         ],
       ),
       body: sectionsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (sections) {
-          if (sections.isEmpty) {
-            // No user sections — redirect directly to the default section.
-            final defaultId = defaultIdAsync.valueOrNull;
-            if (defaultId != null) {
-              SchedulerBinding.instance.addPostFrameCallback((_) {
-                if (context.mounted) {
-                  context.go('/notebook/$notebookId/section/$defaultId');
-                }
-              });
-            }
+          if (defaultId == null) {
             return const Center(child: CircularProgressIndicator());
           }
-          // Prepend an "Unsectioned" entry for the hidden default section.
-          final defaultId = defaultIdAsync.valueOrNull;
-          return ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: sections.length + 1,
-            itemBuilder: (_, i) {
-              if (i == 0) {
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.blueGrey.shade400,
-                    child: const Icon(Icons.inbox_outlined,
-                        color: Colors.white, size: 20),
-                  ),
-                  title: const Text('Unsectioned'),
-                  subtitle: const Text('Pages with no section'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: defaultId == null
-                      ? null
-                      : () => context.push(
-                          '/notebook/$notebookId/section/$defaultId'),
-                );
-              }
-              final s = sections[i - 1];
-              return _SectionTile(
-                section: s,
-                onTap: () => context.push(
-                    '/notebook/$notebookId/section/${s.id}'),
-                onLongPress: () => _showContextMenu(context, ref, s),
-              );
-            },
+          return _NotebookContents(
+            notebookId: widget.notebookId,
+            defaultSectionId: defaultId,
+            sections: sections,
+            onCreateInDefault: () => _createPage(defaultId),
           );
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showCreateDialog(context, ref),
-        icon: const Icon(Icons.add),
-        label: const Text('Section'),
-      ),
+      floatingActionButton: defaultId != null
+          ? FloatingActionButton(
+              onPressed: () => _createPage(defaultId),
+              tooltip: 'New page',
+              child: const Icon(Icons.add),
+            )
+          : null,
     );
   }
 
-  Future<void> _showCreateDialog(BuildContext context, WidgetRef ref) async {
+  // ── Actions ────────────────────────────────────────────────────────────────
+
+  Future<void> _createPage(String sectionId) async {
+    final page = await ref.read(pagesProvider(sectionId).notifier).create();
+    if (!mounted) return;
+    ref.read(tabsProvider.notifier).openTab(TabEntry(
+      pageId: page.id,
+      sectionId: sectionId,
+      notebookId: widget.notebookId,
+      title: page.title,
+    ));
+  }
+
+  Future<void> _showCreateSectionDialog() async {
     final result = await showDialog<_SectionFormResult>(
       context: context,
       builder: (_) => const _SectionFormDialog(),
     );
     if (result != null) {
       await ref
-          .read(sectionsProvider(notebookId).notifier)
+          .read(sectionsProvider(widget.notebookId).notifier)
           .create(result.name, result.color);
     }
   }
+}
 
-  Future<void> _showContextMenu(
-      BuildContext context, WidgetRef ref, Section section) async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      builder: (_) => _SectionActionsSheet(section: section),
+// ── Notebook contents (combined pages + expandable sections) ──────────────────
+
+class _NotebookContents extends ConsumerWidget {
+  final String notebookId;
+  final String defaultSectionId;
+  final List<Section> sections;
+  final VoidCallback onCreateInDefault;
+
+  const _NotebookContents({
+    required this.notebookId,
+    required this.defaultSectionId,
+    required this.sections,
+    required this.onCreateInDefault,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final defaultPages =
+        ref.watch(pagesProvider(defaultSectionId)).valueOrNull ?? [];
+
+    if (defaultPages.isEmpty && sections.isEmpty) {
+      return _EmptyState(onCreateTap: onCreateInDefault);
+    }
+
+    final showPagesLabel = sections.isNotEmpty && defaultPages.isNotEmpty;
+
+    return ListView(
+      children: [
+        // ── Top-level (unsectioned) pages ─────────────────────────────────
+        if (showPagesLabel) const _GroupHeader(label: 'Pages'),
+        if (defaultPages.isNotEmpty)
+          PagesList(
+            pages: defaultPages,
+            notebookId: notebookId,
+            sectionId: defaultSectionId,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+          ),
+
+        // ── User sections (expandable) ────────────────────────────────────
+        ...sections.map(
+          (s) => _SectionExpansionTile(
+            key: ValueKey(s.id),
+            section: s,
+            notebookId: notebookId,
+          ),
+        ),
+
+        const SizedBox(height: 88), // breathing room above FAB
+      ],
     );
-    if (action == null || !context.mounted) return;
+  }
+}
 
+// ── Expandable section tile ───────────────────────────────────────────────────
+
+class _SectionExpansionTile extends ConsumerStatefulWidget {
+  final Section section;
+  final String notebookId;
+
+  const _SectionExpansionTile({
+    super.key,
+    required this.section,
+    required this.notebookId,
+  });
+
+  @override
+  ConsumerState<_SectionExpansionTile> createState() =>
+      _SectionExpansionTileState();
+}
+
+class _SectionExpansionTileState
+    extends ConsumerState<_SectionExpansionTile> {
+  @override
+  Widget build(BuildContext context) {
+    final pages =
+        ref.watch(pagesProvider(widget.section.id)).valueOrNull ?? [];
+    final cs    = Theme.of(context).colorScheme;
+    final color = Color(widget.section.color);
+
+    return ExpansionTile(
+      leading: CircleAvatar(
+        radius: 14,
+        backgroundColor: color,
+        child: const Icon(Icons.folder, color: Colors.white, size: 16),
+      ),
+      // Title row: name + "…" popup menu (popup absorbs its tap so the tile
+      // still toggles expand/collapse on tap elsewhere)
+      title: Row(
+        children: [
+          Expanded(child: Text(widget.section.name)),
+          PopupMenuButton<String>(
+            icon: Icon(Icons.more_vert, size: 18, color: cs.onSurfaceVariant),
+            iconSize: 20,
+            padding: EdgeInsets.zero,
+            tooltip: '',
+            onSelected: _handleMenuAction,
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'add_page',
+                child: Row(children: [
+                  Icon(Icons.add, size: 18),
+                  SizedBox(width: 8),
+                  Text('Add page here'),
+                ]),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'rename',
+                child: Row(children: [
+                  Icon(Icons.edit_outlined, size: 18),
+                  SizedBox(width: 8),
+                  Text('Rename / Change Color'),
+                ]),
+              ),
+              const PopupMenuItem(
+                value: 'export',
+                child: Row(children: [
+                  Icon(Icons.ios_share, size: 18),
+                  SizedBox(width: 8),
+                  Text('Export section'),
+                ]),
+              ),
+              const PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'delete',
+                child: Row(children: [
+                  Icon(Icons.delete_outline, size: 18, color: cs.error),
+                  const SizedBox(width: 8),
+                  Text('Delete', style: TextStyle(color: cs.error)),
+                ]),
+              ),
+            ],
+          ),
+        ],
+      ),
+      children: [
+        if (pages.isEmpty)
+          // Empty section — inline prompt
+          Padding(
+            padding: const EdgeInsets.fromLTRB(56, 4, 16, 8),
+            child: Row(
+              children: [
+                Text(
+                  'No pages yet',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.45),
+                      ),
+                ),
+                const SizedBox(width: 12),
+                TextButton.icon(
+                  onPressed: _addPage,
+                  icon: const Icon(Icons.add, size: 14),
+                  label: const Text('Add page'),
+                  style: TextButton.styleFrom(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else ...[
+          PagesList(
+            pages: pages,
+            notebookId: widget.notebookId,
+            sectionId: widget.section.id,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+          ),
+          // "Add page" row at the bottom of the expanded section
+          ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.only(left: 56, right: 16),
+            leading:
+                Icon(Icons.add, size: 16, color: cs.onSurface.withOpacity(0.45)),
+            title: Text(
+              'Add page',
+              style: TextStyle(
+                  fontSize: 13, color: cs.onSurface.withOpacity(0.45)),
+            ),
+            onTap: _addPage,
+          ),
+        ],
+      ],
+    );
+  }
+
+  // ── Section actions ────────────────────────────────────────────────────────
+
+  Future<void> _addPage() async {
+    final page =
+        await ref.read(pagesProvider(widget.section.id).notifier).create();
+    if (!mounted) return;
+    ref.read(tabsProvider.notifier).openTab(TabEntry(
+      pageId: page.id,
+      sectionId: widget.section.id,
+      notebookId: widget.notebookId,
+      title: page.title,
+    ));
+  }
+
+  Future<void> _handleMenuAction(String action) async {
     switch (action) {
+      case 'add_page':
+        await _addPage();
+
       case 'rename':
         final result = await showDialog<_SectionFormResult>(
           context: context,
           builder: (_) => _SectionFormDialog(
-            initialName: section.name,
-            initialColor: section.color,
+            initialName: widget.section.name,
+            initialColor: widget.section.color,
           ),
         );
         if (result != null) {
-          await ref.read(sectionsProvider(notebookId).notifier).edit(
-                section.copyWith(name: result.name, color: result.color),
+          await ref.read(sectionsProvider(widget.notebookId).notifier).edit(
+                widget.section
+                    .copyWith(name: result.name, color: result.color),
               );
         }
+
       case 'export':
-        if (context.mounted) {
+        if (mounted) {
           await showExportSheet(
             context,
-            title: 'Export "${section.name}"',
+            title: 'Export "${widget.section.name}"',
             showOutputChoice: true,
             onExport: (fmt, output) =>
-                ExportService().exportSection(context, section, fmt, output),
+                ExportService().exportSection(context, widget.section, fmt, output),
           );
         }
+
       case 'delete':
         final confirmed = await showConfirmDialog(
           context,
           title: 'Delete Section',
-          message: 'Delete "${section.name}"? All pages will be removed.',
+          message:
+              'Delete "${widget.section.name}"? All pages will be removed.',
           confirmColor: Colors.red,
         );
         if (confirmed) {
           await ref
-              .read(sectionsProvider(notebookId).notifier)
-              .delete(section.id);
+              .read(sectionsProvider(widget.notebookId).notifier)
+              .delete(widget.section.id);
         }
     }
   }
 }
 
-class _SectionTile extends StatelessWidget {
-  final Section section;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
+// ── Group label ("Pages" shown when top-level pages coexist with sections) ────
 
-  const _SectionTile({
-    required this.section,
-    required this.onTap,
-    required this.onLongPress,
-  });
+class _GroupHeader extends StatelessWidget {
+  final String label;
+
+  const _GroupHeader({required this.label});
 
   @override
   Widget build(BuildContext context) {
-    final color = Color(section.color);
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: color,
-        child: const Icon(Icons.folder, color: Colors.white, size: 20),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Text(
+        label.toUpperCase(),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              letterSpacing: 1.0,
+            ),
       ),
-      title: Text(section.name),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: onTap,
-      onLongPress: onLongPress,
     );
   }
 }
+
+// ── Empty state ───────────────────────────────────────────────────────────────
 
 class _EmptyState extends StatelessWidget {
   final VoidCallback onCreateTap;
@@ -193,28 +394,44 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.folder_outlined,
+          Icon(Icons.article_outlined,
               size: 80,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),
+              color:
+                  Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),
           const SizedBox(height: 16),
-          Text('No sections yet',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withOpacity(0.5),
-                  )),
+          Text(
+            'No pages yet',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.5),
+                ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Use + to create a page, or add sections to organise your notes.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.4),
+                ),
+          ),
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: onCreateTap,
             icon: const Icon(Icons.add),
-            label: const Text('Create Section'),
+            label: const Text('Create Page'),
           ),
         ],
       ),
     );
   }
 }
+
+// ── Section form (create / edit) ──────────────────────────────────────────────
 
 class _SectionFormResult {
   final String name;
@@ -310,39 +527,6 @@ class _SectionFormDialogState extends State<_SectionFormDialog> {
           child: const Text('Save'),
         ),
       ],
-    );
-  }
-}
-
-class _SectionActionsSheet extends StatelessWidget {
-  final Section section;
-
-  const _SectionActionsSheet({required this.section});
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.edit),
-            title: const Text('Rename / Change Color'),
-            onTap: () => Navigator.pop(context, 'rename'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.ios_share),
-            title: const Text('Export section'),
-            onTap: () => Navigator.pop(context, 'export'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.delete, color: Colors.red),
-            title:
-                const Text('Delete', style: TextStyle(color: Colors.red)),
-            onTap: () => Navigator.pop(context, 'delete'),
-          ),
-        ],
-      ),
     );
   }
 }
