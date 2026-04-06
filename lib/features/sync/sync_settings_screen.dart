@@ -7,6 +7,7 @@ import 'sync_provider.dart';
 import '../export/export_service.dart';
 import '../license/license_gate.dart';
 import '../license/license_provider.dart';
+import '../license/license_service.dart';
 
 class SyncSettingsScreen extends ConsumerWidget {
   const SyncSettingsScreen({super.key});
