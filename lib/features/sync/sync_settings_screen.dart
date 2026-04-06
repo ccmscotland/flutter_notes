@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -63,6 +64,10 @@ class SyncSettingsScreen extends ConsumerWidget {
             feature: Feature.localBackup,
             child: _LocalBackupCard(),
           ),
+          if (kDebugMode) ...[
+            const SizedBox(height: 16),
+            const _DevSettingsCard(),
+          ],
           const SizedBox(height: 24),
           if (sync.lastError != null)
             Card(
@@ -327,6 +332,87 @@ class _ProviderCard extends StatelessWidget {
                   ),
                 ],
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Developer settings card (debug builds only) ───────────────────────────────
+
+class _DevSettingsCard extends ConsumerWidget {
+  const _DevSettingsCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isPro = ref.watch(isProProvider);
+    final cs    = Theme.of(context).colorScheme;
+
+    return Card(
+      color: cs.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.bug_report_outlined,
+                    size: 20, color: cs.onTertiaryContainer),
+                const SizedBox(width: 8),
+                Text(
+                  'Developer',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: cs.onTertiaryContainer,
+                      ),
+                ),
+                const Spacer(),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: cs.tertiary,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'DEBUG',
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: cs.onTertiary),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                'Pro mode',
+                style: TextStyle(color: cs.onTertiaryContainer),
+              ),
+              subtitle: Text(
+                isPro ? 'All Pro features unlocked' : 'Running as Free tier',
+                style: TextStyle(
+                    color: cs.onTertiaryContainer.withOpacity(0.7),
+                    fontSize: 12),
+              ),
+              secondary: Icon(
+                isPro ? Icons.verified_outlined : Icons.lock_outline,
+                color: isPro ? Colors.green.shade600 : cs.onTertiaryContainer,
+              ),
+              value: isPro,
+              onChanged: (enable) async {
+                final notifier = ref.read(licenseProvider.notifier);
+                if (enable) {
+                  final key = LicenseService().generateProKey();
+                  await notifier.activate(key);
+                } else {
+                  await notifier.deactivate();
+                }
+              },
             ),
           ],
         ),
