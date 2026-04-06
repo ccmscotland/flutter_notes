@@ -3,6 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'activation_screen.dart';
 import 'license_provider.dart';
 
+/// Set to [false] to enforce licence gating in production.
+/// While [true] every feature is treated as unlocked regardless of tier.
+const bool kLicensingEnabled = false;
+
 /// Wraps [child] and shows a "locked" placeholder when [feature] is not
 /// unlocked by the current license tier.
 ///
@@ -21,6 +25,8 @@ class LicenseGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (!kLicensingEnabled) return child;
+
     final unlocked = ref.watch(licenseProvider).whenOrNull(
           data: (s) => s.isUnlocked(feature),
         ) ??
@@ -119,6 +125,7 @@ VoidCallback? guardedCallback(
   VoidCallback? callback,
 ) {
   if (callback == null) return null;
+  if (!kLicensingEnabled) return callback;
   final unlocked =
       ref.read(licenseProvider).valueOrNull?.isUnlocked(feature) ?? false;
   if (unlocked) return callback;
