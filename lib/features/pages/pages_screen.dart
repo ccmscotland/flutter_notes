@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../core/models/page.dart';
 import '../../core/models/page_group.dart';
+import '../../shared/providers/starred_pages_provider.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../export/export_service.dart';
 import '../export/export_sheet.dart';
@@ -176,9 +177,10 @@ class _PageTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final updated = DateTime.fromMillisecondsSinceEpoch(page.updatedAt);
+    final updated   = DateTime.fromMillisecondsSinceEpoch(page.updatedAt);
     final formatted = DateFormat('MMM d, yyyy').format(updated);
-    final cs = Theme.of(context).colorScheme;
+    final cs        = Theme.of(context).colorScheme;
+    final starred   = ref.watch(starredPagesProvider).valueOrNull?.contains(page.id) ?? false;
 
     return Dismissible(
       key: ValueKey(page.id),
@@ -194,7 +196,18 @@ class _PageTile extends ConsumerWidget {
         return false; // let provider handle the actual deletion
       },
       child: ListTile(
-        leading: const Icon(Icons.article_outlined),
+        leading: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            const Icon(Icons.article_outlined),
+            if (starred)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: Icon(Icons.star, size: 12, color: Colors.amber.shade600),
+              ),
+          ],
+        ),
         title: Text(page.title),
         subtitle: Text(formatted),
         trailing: PopupMenuButton<String>(
@@ -207,6 +220,15 @@ class _PageTile extends ConsumerWidget {
                 Icon(Icons.edit_outlined, size: 18),
                 SizedBox(width: 8),
                 Text('Rename'),
+              ]),
+            ),
+            PopupMenuItem(
+              value: 'star',
+              child: Row(children: [
+                Icon(starred ? Icons.star : Icons.star_border_outlined,
+                    size: 18, color: Colors.amber.shade600),
+                const SizedBox(width: 8),
+                Text(starred ? 'Unstar' : 'Star'),
               ]),
             ),
             const PopupMenuItem(
@@ -237,6 +259,7 @@ class _PageTile extends ConsumerWidget {
           ],
           onSelected: (val) {
             if (val == 'rename') _showRenameDialog(context);
+            if (val == 'star') ref.read(starredPagesProvider.notifier).toggle(page.id);
             if (val == 'group') _showGroupPicker(context, ref);
             if (val == 'export') onExport();
             if (val == 'delete') onDelete();

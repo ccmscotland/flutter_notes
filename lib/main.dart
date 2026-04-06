@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'router.dart';
 import 'shared/theme/app_theme.dart';
+import 'shared/providers/theme_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,16 +21,18 @@ void main() {
   );
 }
 
-class FlutterNotesApp extends StatelessWidget {
+class FlutterNotesApp extends ConsumerWidget {
   const FlutterNotesApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode =
+        ref.watch(themeProvider).valueOrNull ?? ThemeMode.light;
     return MaterialApp.router(
       title: 'Flutter Notes',
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
-      themeMode: ThemeMode.light,
+      themeMode: themeMode,
       routerConfig: appRouter,
       debugShowCheckedModeBanner: false,
       localizationsDelegates: const [

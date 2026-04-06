@@ -15,6 +15,7 @@ import '../../features/sync/sync_settings_screen.dart';
 import '../../features/license/activation_screen.dart';
 import '../../features/license/license_gate.dart';
 import '../../features/license/license_provider.dart';
+import '../providers/theme_provider.dart';
 
 /// Root shell widget provided to go_router's ShellRoute.
 ///
@@ -315,8 +316,10 @@ class _RailFooter extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isPro = ref.watch(isProProvider);
-    final cs    = Theme.of(context).colorScheme;
+    final isPro      = ref.watch(isProProvider);
+    final themeMode  = ref.watch(themeProvider).valueOrNull ?? ThemeMode.light;
+    final isDark     = themeMode == ThemeMode.dark;
+    final cs         = Theme.of(context).colorScheme;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -361,6 +364,12 @@ class _RailFooter extends ConsumerWidget {
           icon: const Icon(Icons.sync),
           tooltip: 'Sync',
           onPressed: () => _openSyncSettings(context),
+        ),
+        // Theme toggle
+        IconButton(
+          icon: Icon(isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+          tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+          onPressed: () => ref.read(themeProvider.notifier).toggle(),
         ),
         // Licence / Upgrade button
         IconButton(

@@ -23,7 +23,9 @@ import '../export/export_service.dart';
 import '../export/export_sheet.dart';
 import '../license/license_gate.dart';
 import '../license/license_provider.dart';
+import '../../shared/providers/recent_pages_provider.dart';
 import 'annotate_image_screen.dart';
+import 'delta_utils.dart';
 import 'drawing_canvas.dart';
 import 'math_embed.dart';
 import 'table_editor_screen.dart';
@@ -89,6 +91,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   int? _pageInkActivePointer;
   bool _fabExpanded = false;
 
+  // ── Word count ───────────────────────────────────────────────────────────
+  int _wordCount = 0;
+
   // ── Pinch-to-zoom (touch only, gesture-arena-free) ───────────────────────
   final Map<int, Offset> _pinchPointers = {};
   double? _pinchBaseDistance;
@@ -149,8 +154,22 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
     _editorScroll.addListener(_onEditorScroll);
 
-    _controller!.document.changes.listen((_) => _scheduleSave());
+    _controller!.document.changes.listen((_) {
+      _scheduleSave();
+      _updateWordCount();
+    });
     _titleCtrl.addListener(_scheduleSave);
+    _updateWordCount();
+
+    // Track recently viewed pages
+    if (page != null) {
+      ref.read(recentPagesProvider.notifier).add(RecentPageRef(
+            pageId: page.id,
+            sectionId: page.sectionId,
+            notebookId: widget.notebookId,
+            title: page.title,
+          ));
+    }
 
     // Update the tab title with the DB-loaded title.
     // Only call openTab() if no tab exists yet (e.g. deep-link / search nav).
@@ -587,15 +606,33 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   void _pinchUp(PointerUpEvent e) => _pinchPointers.remove(e.pointer);
   void _pinchCancel(PointerCancelEvent e) => _pinchPointers.remove(e.pointer);
 
+  void _updateWordCount() {
+    final json = _controller?.document.toDelta().toJson();
+    if (json == null) return;
+    final words = countWords(jsonEncode(json));
+    if (words != _wordCount) setState(() => _wordCount = words);
+  }
+
   Widget _buildZoomBar(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final rt = readingTime(_wordCount);
     return Material(
       color: cs.surfaceContainerLow,
       child: SizedBox(
         height: 28,
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.end,
           children: [
+            const SizedBox(width: 12),
+            Text(
+              _wordCount == 0
+                  ? 'No content'
+                  : '$_wordCount word${_wordCount == 1 ? '' : 's'}${rt.isNotEmpty ? '  ·  $rt' : ''}',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: cs.onSurfaceVariant),
+            ),
+            const Spacer(),
             IconButton(
               icon: const Icon(Icons.remove, size: 13),
               iconSize: 13,

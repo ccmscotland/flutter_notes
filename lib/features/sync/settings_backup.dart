@@ -17,6 +17,11 @@ class SettingsBackup {
     'smb_domain',
     'smb_format',
     'smb_backup_path',
+    // UI preferences
+    'theme_mode',
+    // Per-user data (lists stored as JSON strings by their providers)
+    'starred_pages',
+    'recent_pages',
   ];
 
   /// Exports current settings as a JSON string.

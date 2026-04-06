@@ -6,6 +6,8 @@ import '../../features/pages/pages_screen.dart';
 import '../../features/sections/sections_provider.dart';
 import '../../features/tabs/tabs_provider.dart';
 import '../providers/nav_state_provider.dart';
+import '../providers/recent_pages_provider.dart';
+import '../providers/starred_pages_provider.dart';
 
 /// Centre pane shown in the wide-mode shell.
 ///
@@ -21,7 +23,7 @@ class BrowsePane extends ConsumerWidget {
     final notebookId  = navState.selectedNotebookId;
 
     if (sectionId == null || notebookId == null) {
-      return const _NoSelectionPlaceholder();
+      return const _QuickAccessPane();
     }
 
     final pagesAsync   = ref.watch(pagesProvider(sectionId));
@@ -154,30 +156,116 @@ class BrowsePane extends ConsumerWidget {
   }
 }
 
-class _NoSelectionPlaceholder extends StatelessWidget {
-  const _NoSelectionPlaceholder();
+// ── Quick-access pane (starred + recent) ─────────────────────────────────────
+
+class _QuickAccessPane extends ConsumerWidget {
+  const _QuickAccessPane();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs          = Theme.of(context).colorScheme;
+    final starredIds  = ref.watch(starredPagesProvider).valueOrNull ?? {};
+    final recentAsync = ref.watch(recentPagesProvider);
+    final recent      = recentAsync.valueOrNull ?? [];
+    final starred     = recent.where((r) => starredIds.contains(r.pageId)).toList();
+    final nonStarred  = recent.where((r) => !starredIds.contains(r.pageId)).toList();
+
+    if (recent.isEmpty && starredIds.isEmpty) {
+      return Material(
+        color: cs.surface,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.folder_open_outlined,
+                  size: 64, color: cs.onSurface.withOpacity(0.25)),
+              const SizedBox(height: 12),
+              Text(
+                'Select a section',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurface.withOpacity(0.45),
+                    ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Material(
+      color: cs.surface,
+      child: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          if (starred.isNotEmpty) ...[
+            _SectionHeader(
+                icon: Icons.star_outlined,
+                color: Colors.amber.shade600,
+                label: 'Starred'),
+            ...starred.map((r) => _QuickTile(ref: r)),
+          ],
+          if (nonStarred.isNotEmpty) ...[
+            _SectionHeader(
+                icon: Icons.history,
+                color: cs.onSurfaceVariant,
+                label: 'Recent'),
+            ...nonStarred.map((r) => _QuickTile(ref: r)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+
+  const _SectionHeader(
+      {required this.icon, required this.color, required this.label});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Material(
-      color: cs.surface,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.folder_open_outlined,
-                size: 64, color: cs.onSurface.withOpacity(0.25)),
-            const SizedBox(height: 12),
-            Text(
-              'Select a section',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface.withOpacity(0.45),
-                  ),
-            ),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: Theme.of(context)
+                .textTheme
+                .labelSmall
+                ?.copyWith(color: cs.onSurfaceVariant, letterSpacing: 0.8),
+          ),
+        ],
       ),
+    );
+  }
+}
+
+class _QuickTile extends ConsumerWidget {
+  final RecentPageRef ref;
+
+  const _QuickTile({required this.ref});
+
+  @override
+  Widget build(BuildContext context, WidgetRef widgetRef) {
+    return ListTile(
+      dense: true,
+      leading: const Icon(Icons.article_outlined, size: 18),
+      title: Text(ref.title, overflow: TextOverflow.ellipsis),
+      onTap: () {
+        widgetRef.read(tabsProvider.notifier).openTab(TabEntry(
+              pageId: ref.pageId,
+              sectionId: ref.sectionId,
+              notebookId: ref.notebookId,
+              title: ref.title,
+            ));
+      },
     );
   }
 }

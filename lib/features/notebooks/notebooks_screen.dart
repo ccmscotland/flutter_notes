@@ -13,6 +13,7 @@ import '../export/export_sheet.dart';
 import '../license/activation_screen.dart';
 import '../license/license_gate.dart';
 import '../license/license_provider.dart';
+import '../../shared/providers/theme_provider.dart';
 import 'notebooks_provider.dart';
 
 class NotebooksScreen extends ConsumerWidget {
@@ -22,6 +23,8 @@ class NotebooksScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final notebooksAsync = ref.watch(notebooksProvider);
     final isPro          = ref.watch(isProProvider);
+    final themeMode      = ref.watch(themeProvider).valueOrNull ?? ThemeMode.light;
+    final isDark         = themeMode == ThemeMode.dark;
     final cs             = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -49,6 +52,13 @@ class NotebooksScreen extends ConsumerWidget {
               context: context,
               builder: (_) => const Dialog.fullscreen(child: SyncSettingsScreen()),
             ),
+          ),
+          IconButton(
+            icon: Icon(isDark
+                ? Icons.light_mode_outlined
+                : Icons.dark_mode_outlined),
+            tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+            onPressed: () => ref.read(themeProvider.notifier).toggle(),
           ),
           IconButton(
             icon: Icon(
