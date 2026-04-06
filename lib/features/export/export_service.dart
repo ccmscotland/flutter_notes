@@ -196,19 +196,19 @@ class ExportService {
     if (context.mounted) await _deliver(context, result, group.name);
   }
 
-  /// Exports all notes as a human-readable ZIP (Markdown + manifest).
+  /// Exports all notes as a ZIP (Markdown for readability + Delta JSON for
+  /// lossless restore + all image/attachment files).
   /// The ZIP can be fully restored via [restoreBackup].
   Future<void> backupAll(BuildContext context) async {
     final tmpDir = await getTemporaryDirectory();
     final stamp  = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
     final zipPath = p.join(tmpDir.path, 'flutter_notes_backup_$stamp.zip');
 
-    final notebooks  = await _notebooksDao.getAll();
-    final allAssets  = <PageAsset>[];
+    final notebooks = await _notebooksDao.getAll();
 
-    // Build manifest structure + per-page Markdown files
     final manifestNotebooks = <Map<String, dynamic>>[];
-    final pageFiles          = <String, String>{}; // zip path → content
+    final pageFiles         = <String, String>{};   // zip path → Markdown text
+    final assetEntries      = <(File, String)>[];   // (local file, zip path)
 
     for (final nb in notebooks) {
       final sections     = await _sectionsDao.getByNotebook(nb.id);
@@ -222,22 +222,37 @@ class ExportService {
           final safePg   = _sanitise(pg.title);
           final safeSec  = _sanitise(sec.name);
           final safeNb   = _sanitise(nb.name);
-          final filePath = '$safeNb/$safeSec/$safePg.md';
+          final mdPath   = '$safeNb/$safeSec/$safePg.md';
 
-          // Markdown content — readable in any editor
+          // Human-readable Markdown (for opening in any editor)
           final ops = _parseOps(pg.content);
           final md  = '# ${pg.title}\n\n${DeltaConverter.toMarkdown(ops)}\n';
-          pageFiles[filePath] = md;
+          pageFiles[mdPath] = md;
 
-          final assets = await _assetsDao.getByPage(pg.id);
-          allAssets.addAll(assets);
+          // Per-page asset records — stored page-scoped to avoid name collisions
+          final assets      = await _assetsDao.getByPage(pg.id);
+          final assetMeta   = <Map<String, dynamic>>[];
+          for (final a in assets) {
+            final zipAssetPath = 'assets/${pg.id}/${a.fileName}';
+            assetMeta.add({
+              'id':         a.id,
+              'file_name':  a.fileName,
+              'mime_type':  a.mimeType,
+              'local_path': a.localPath,   // original path — used for path-rewriting on restore
+              'zip_path':   zipAssetPath,
+            });
+            final f = File(a.localPath);
+            if (f.existsSync()) assetEntries.add((f, zipAssetPath));
+          }
 
           manifestPgs.add({
             'id':         pg.id,
             'title':      pg.title,
-            'file':       filePath,
+            'file':       mdPath,
+            'delta':      ops,             // raw ops for lossless restore
             'created_at': pg.createdAt,
             'updated_at': pg.updatedAt,
+            'assets':     assetMeta,
           });
         }
         manifestSecs.add({
@@ -256,7 +271,7 @@ class ExportService {
     }
 
     final manifest = jsonEncode({
-      'version':     2,
+      'version':     3,
       'format':      'markdown',
       'app':         'flutter_notes',
       'exported_at': DateTime.now().millisecondsSinceEpoch,
@@ -279,12 +294,9 @@ class ExportService {
       encoder.addFile(f, entry.key);
     }
 
-    // Assets
-    for (final asset in allAssets) {
-      final file = File(asset.localPath);
-      if (file.existsSync()) {
-        encoder.addFile(file, 'assets/${asset.fileName}');
-      }
+    // Asset files (page-scoped paths inside the ZIP)
+    for (final (file, zipAssetPath) in assetEntries) {
+      encoder.addFile(file, zipAssetPath);
     }
 
     // Settings
@@ -324,12 +336,15 @@ class ExportService {
           archive.files.firstWhere((f) => f.name == 'manifest.json');
       final manifestJson = utf8.decode(manifestEntry.content as List<int>);
       final manifest     = jsonDecode(manifestJson) as Map<String, dynamic>;
+      final version      = (manifest['version'] as int? ?? 1);
 
-      if ((manifest['version'] as int? ?? 1) < 2) {
+      if (version < 2) {
         return const RestoreResult(
             restored: 0, skipped: 0,
             error: 'Old backup format — not supported for restore');
       }
+
+      final appDocDir = await getApplicationDocumentsDirectory();
 
       for (final nbData
           in (manifest['notebooks'] as List).cast<Map<String, dynamic>>()) {
@@ -361,30 +376,82 @@ class ExportService {
 
           for (final pgData
               in (secData['pages'] as List).cast<Map<String, dynamic>>()) {
-            final filePath = pgData['file'] as String;
-            final entry    = archive.files
-                .cast<ArchiveFile?>()
-                .firstWhere((f) => f?.name == filePath, orElse: () => null);
+            final pageId = pgData['id'] as String;
 
-            if (entry == null) { skipped++; continue; }
+            // ── Content: prefer raw Delta (v3+), fall back to Markdown conversion ──
+            String deltaJson;
+            if (version >= 3 && pgData.containsKey('delta')) {
+              deltaJson = jsonEncode(pgData['delta']);
+            } else {
+              final filePath = pgData['file'] as String;
+              final entry    = archive.files
+                  .cast<ArchiveFile?>()
+                  .firstWhere((f) => f?.name == filePath, orElse: () => null);
+              if (entry == null) { skipped++; continue; }
+              final mdContent = utf8.decode(entry.content as List<int>);
+              final bodyLines = mdContent.split('\n');
+              final body = bodyLines.length > 2
+                  ? bodyLines.skip(2).join('\n')
+                  : mdContent;
+              deltaJson = _markdownToDelta(body);
+            }
 
-            final mdContent = utf8.decode(entry.content as List<int>);
-            final bodyLines = mdContent.split('\n');
-            final body = bodyLines.length > 2
-                ? bodyLines.skip(2).join('\n')
-                : mdContent;
-            final deltaJson = _markdownToDelta(body);
+            // ── Assets: extract files and rewrite paths in Delta content ──
+            final assetList =
+                (pgData['assets'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+            final assetRecords = <PageAsset>[];
 
-            final existing = await _pagesDao.getById(pgData['id'] as String);
+            for (final assetData in assetList) {
+              final assetId  = assetData['id'] as String;
+              final fileName = assetData['file_name'] as String;
+              final mimeType = assetData['mime_type'] as String? ?? 'application/octet-stream';
+              final oldPath  = assetData['local_path'] as String? ?? '';
+              // v3 uses page-scoped path; v2 used flat 'assets/{fileName}'
+              final zipPath  = assetData['zip_path'] as String?
+                  ?? 'assets/$fileName';
+
+              final assetEntry = archive.files
+                  .cast<ArchiveFile?>()
+                  .firstWhere((f) => f?.name == zipPath, orElse: () => null);
+              if (assetEntry == null) continue;
+
+              final assetDir =
+                  Directory(p.join(appDocDir.path, 'assets', pageId));
+              await assetDir.create(recursive: true);
+              final newPath = p.join(assetDir.path, fileName);
+              await File(newPath)
+                  .writeAsBytes(assetEntry.content as List<int>);
+
+              // Replace the original absolute path with the new device path
+              if (oldPath.isNotEmpty && oldPath != newPath) {
+                deltaJson = deltaJson.replaceAll(oldPath, newPath);
+              }
+
+              assetRecords.add(PageAsset(
+                id:        assetId,
+                pageId:    pageId,
+                fileName:  fileName,
+                localPath: newPath,
+                mimeType:  mimeType,
+                createdAt: DateTime.now().millisecondsSinceEpoch,
+              ));
+            }
+
+            // ── Insert page + asset records ──────────────────────────────────
+            final existing = await _pagesDao.getById(pageId);
             if (existing == null) {
               await _pagesDao.insert(NotePage(
-                id:        pgData['id'] as String,
+                id:        pageId,
                 sectionId: secData['id'] as String,
                 title:     pgData['title'] as String,
                 content:   deltaJson,
                 createdAt: (pgData['created_at'] as num).toInt(),
                 updatedAt: (pgData['updated_at'] as num).toInt(),
               ));
+              for (final asset in assetRecords) {
+                final existingAsset = await _assetsDao.getById(asset.id);
+                if (existingAsset == null) await _assetsDao.insert(asset);
+              }
               restored++;
             } else {
               skipped++;
