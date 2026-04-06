@@ -9,8 +9,30 @@ permissions:
   contents: write
 
 jobs:
+  # ── Unit & DAO tests ─────────────────────────────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SQLite dev libraries
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.x'
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Run tests
+        run: flutter test --no-pub
+
   # ── Android APK ─────────────────────────────────────────────────────────────
   build-android:
+    needs: [test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -87,6 +109,7 @@ jobs:
 
   # ── Windows EXE ─────────────────────────────────────────────────────────────
   build-windows:
+    needs: [test]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

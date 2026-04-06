@@ -15,6 +15,9 @@ class DatabaseHelper {
     return _db!;
   }
 
+  /// Injects a pre-opened [Database] for use in tests.
+  void overrideForTesting(Database db) => _db = db;
+
   Future<Database> _openDb() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, _dbName);
