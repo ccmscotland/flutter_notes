@@ -12,6 +12,9 @@ import '../utils/responsive.dart';
 import 'browse_pane.dart';
 import '../../features/groups/groups_screen.dart';
 import '../../features/sync/sync_settings_screen.dart';
+import '../../features/license/activation_screen.dart';
+import '../../features/license/license_gate.dart';
+import '../../features/license/license_provider.dart';
 
 /// Root shell widget provided to go_router's ShellRoute.
 ///
@@ -312,6 +315,9 @@ class _RailFooter extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isPro = ref.watch(isProProvider);
+    final cs    = Theme.of(context).colorScheme;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -338,9 +344,12 @@ class _RailFooter extends ConsumerWidget {
         IconButton(
           icon: const Icon(Icons.collections_bookmark_outlined),
           tooltip: 'Collections',
-          onPressed: () => showDialog<void>(
-            context: context,
-            builder: (_) => const Dialog.fullscreen(child: GroupsScreen()),
+          onPressed: guardedCallback(
+            context, ref, Feature.collections,
+            () => showDialog<void>(
+              context: context,
+              builder: (_) => const Dialog.fullscreen(child: GroupsScreen()),
+            ),
           ),
         ),
         IconButton(
@@ -352,6 +361,18 @@ class _RailFooter extends ConsumerWidget {
           icon: const Icon(Icons.sync),
           tooltip: 'Sync',
           onPressed: () => _openSyncSettings(context),
+        ),
+        // Licence / Upgrade button
+        IconButton(
+          icon: Icon(
+            isPro ? Icons.verified_outlined : Icons.vpn_key_outlined,
+            color: isPro ? Colors.green.shade600 : cs.primary,
+          ),
+          tooltip: isPro ? 'Pro — Activated' : 'Activate Pro',
+          onPressed: () => showDialog<void>(
+            context: context,
+            builder: (_) => const Dialog.fullscreen(child: ActivationScreen()),
+          ),
         ),
         const SizedBox(height: 4),
       ],

@@ -10,6 +10,9 @@ import '../../shared/widgets/color_picker_dialog.dart';
 import '../../shared/widgets/confirm_dialog.dart';
 import '../export/export_service.dart';
 import '../export/export_sheet.dart';
+import '../license/activation_screen.dart';
+import '../license/license_gate.dart';
+import '../license/license_provider.dart';
 import 'notebooks_provider.dart';
 
 class NotebooksScreen extends ConsumerWidget {
@@ -18,6 +21,8 @@ class NotebooksScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final notebooksAsync = ref.watch(notebooksProvider);
+    final isPro          = ref.watch(isProProvider);
+    final cs             = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -26,9 +31,12 @@ class NotebooksScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.collections_bookmark_outlined),
             tooltip: 'Collections',
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (_) => const Dialog.fullscreen(child: GroupsScreen()),
+            onPressed: guardedCallback(
+              context, ref, Feature.collections,
+              () => showDialog<void>(
+                context: context,
+                builder: (_) => const Dialog.fullscreen(child: GroupsScreen()),
+              ),
             ),
           ),
           IconButton(
@@ -40,6 +48,17 @@ class NotebooksScreen extends ConsumerWidget {
             onPressed: () => showDialog<void>(
               context: context,
               builder: (_) => const Dialog.fullscreen(child: SyncSettingsScreen()),
+            ),
+          ),
+          IconButton(
+            icon: Icon(
+              isPro ? Icons.verified_outlined : Icons.vpn_key_outlined,
+              color: isPro ? Colors.green.shade600 : cs.primary,
+            ),
+            tooltip: isPro ? 'Pro — Activated' : 'Activate Pro',
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => const Dialog.fullscreen(child: ActivationScreen()),
             ),
           ),
         ],

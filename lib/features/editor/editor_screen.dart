@@ -21,6 +21,8 @@ import '../../shared/providers/nav_state_provider.dart';
 import '../../shared/utils/responsive.dart';
 import '../export/export_service.dart';
 import '../export/export_sheet.dart';
+import '../license/license_gate.dart';
+import '../license/license_provider.dart';
 import 'annotate_image_screen.dart';
 import 'drawing_canvas.dart';
 import 'math_embed.dart';
@@ -766,12 +768,15 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     if (_page != null)
                       IconButton(
                         icon: const Icon(Icons.ios_share),
-                        onPressed: () => showExportSheet(
-                          context,
-                          title: 'Export "${_page!.title}"',
-                          showOutputChoice: false,
-                          onExport: (fmt, _) =>
-                              ExportService().exportPage(context, _page!, fmt),
+                        onPressed: guardedCallback(
+                          context, ref, Feature.exportFiles,
+                          () => showExportSheet(
+                            context,
+                            title: 'Export "${_page!.title}"',
+                            showOutputChoice: false,
+                            onExport: (fmt, _) =>
+                                ExportService().exportPage(context, _page!, fmt),
+                          ),
                         ),
                         tooltip: 'Export page',
                       ),
@@ -786,12 +791,15 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     if (_page != null)
                       IconButton(
                         icon: const Icon(Icons.ios_share),
-                        onPressed: () => showExportSheet(
-                          context,
-                          title: 'Export "${_page!.title}"',
-                          showOutputChoice: false,
-                          onExport: (fmt, _) =>
-                              ExportService().exportPage(context, _page!, fmt),
+                        onPressed: guardedCallback(
+                          context, ref, Feature.exportFiles,
+                          () => showExportSheet(
+                            context,
+                            title: 'Export "${_page!.title}"',
+                            showOutputChoice: false,
+                            onExport: (fmt, _) =>
+                                ExportService().exportPage(context, _page!, fmt),
+                          ),
                         ),
                         tooltip: 'Export page',
                       ),

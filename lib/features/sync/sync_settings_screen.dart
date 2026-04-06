@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import 'smb_sync_screen.dart';
 import 'sync_provider.dart';
 import '../export/export_service.dart';
+import '../license/license_gate.dart';
+import '../license/license_provider.dart';
 
 class SyncSettingsScreen extends ConsumerWidget {
   const SyncSettingsScreen({super.key});
@@ -19,36 +21,48 @@ class SyncSettingsScreen extends ConsumerWidget {
         padding: const EdgeInsets.all(16),
         children: [
           // --- Google Drive ---
-          _ProviderCard(
-            icon: Icons.storage,
-            title: 'Google Drive',
-            color: const Color(0xFF4285F4),
-            isSignedIn: sync.googleSignedIn,
-            isSyncing: sync.isSyncing,
-            lastSyncTime: sync.lastSyncTime,
-            lastError: sync.lastError,
-            onSignIn: notifier.signInGoogle,
-            onSignOut: notifier.signOutGoogle,
-            onSync: sync.googleSignedIn ? notifier.syncGoogle : null,
+          LicenseGate(
+            feature: Feature.cloudSync,
+            child: _ProviderCard(
+              icon: Icons.storage,
+              title: 'Google Drive',
+              color: const Color(0xFF4285F4),
+              isSignedIn: sync.googleSignedIn,
+              isSyncing: sync.isSyncing,
+              lastSyncTime: sync.lastSyncTime,
+              lastError: sync.lastError,
+              onSignIn: notifier.signInGoogle,
+              onSignOut: notifier.signOutGoogle,
+              onSync: sync.googleSignedIn ? notifier.syncGoogle : null,
+            ),
           ),
           const SizedBox(height: 16),
           // --- OneDrive ---
-          _ProviderCard(
-            icon: Icons.cloud,
-            title: 'OneDrive',
-            color: const Color(0xFF0078D4),
-            isSignedIn: sync.oneDriveSignedIn,
-            isSyncing: sync.isSyncing,
-            lastSyncTime: sync.lastSyncTime,
-            lastError: sync.lastError,
-            onSignIn: notifier.signInOneDrive,
-            onSignOut: notifier.signOutOneDrive,
-            onSync: sync.oneDriveSignedIn ? notifier.syncOneDrive : null,
+          LicenseGate(
+            feature: Feature.cloudSync,
+            child: _ProviderCard(
+              icon: Icons.cloud,
+              title: 'OneDrive',
+              color: const Color(0xFF0078D4),
+              isSignedIn: sync.oneDriveSignedIn,
+              isSyncing: sync.isSyncing,
+              lastSyncTime: sync.lastSyncTime,
+              lastError: sync.lastError,
+              onSignIn: notifier.signInOneDrive,
+              onSignOut: notifier.signOutOneDrive,
+              onSync: sync.oneDriveSignedIn ? notifier.syncOneDrive : null,
+            ),
           ),
           const SizedBox(height: 16),
-          const _SmbSyncCard(),
+          const LicenseGate(
+            feature: Feature.smbSync,
+            child: _SmbSyncCard(),
+          ),
           const SizedBox(height: 16),
-          const _LocalBackupCard(),
+          const LicenseGate(
+            feature: Feature.localBackup,
+            child: _LocalBackupCard(),
+          ),
           const SizedBox(height: 24),
           if (sync.lastError != null)
             Card(
