@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/models/section.dart';
@@ -17,8 +18,9 @@ class SectionsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final notebookAsync = ref.watch(notebooksProvider);
-    final sectionsAsync = ref.watch(sectionsProvider(notebookId));
+    final notebookAsync  = ref.watch(notebooksProvider);
+    final sectionsAsync  = ref.watch(sectionsProvider(notebookId));
+    final defaultIdAsync = ref.watch(defaultSectionIdProvider(notebookId));
 
     final notebookName = notebookAsync.whenOrNull(
           data: (nbs) =>
@@ -41,20 +43,47 @@ class SectionsScreen extends ConsumerWidget {
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (sections) {
           if (sections.isEmpty) {
-            return _EmptyState(
-              onCreateTap: () => _showCreateDialog(context, ref),
-            );
+            // No user sections — redirect directly to the default section.
+            final defaultId = defaultIdAsync.valueOrNull;
+            if (defaultId != null) {
+              SchedulerBinding.instance.addPostFrameCallback((_) {
+                if (context.mounted) {
+                  context.go('/notebook/$notebookId/section/$defaultId');
+                }
+              });
+            }
+            return const Center(child: CircularProgressIndicator());
           }
+          // Prepend an "Unsectioned" entry for the hidden default section.
+          final defaultId = defaultIdAsync.valueOrNull;
           return ListView.builder(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: sections.length,
-            itemBuilder: (_, i) => _SectionTile(
-              section: sections[i],
-              onTap: () => context.push(
-                  '/notebook/$notebookId/section/${sections[i].id}'),
-              onLongPress: () =>
-                  _showContextMenu(context, ref, sections[i]),
-            ),
+            itemCount: sections.length + 1,
+            itemBuilder: (_, i) {
+              if (i == 0) {
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.blueGrey.shade400,
+                    child: const Icon(Icons.inbox_outlined,
+                        color: Colors.white, size: 20),
+                  ),
+                  title: const Text('Unsectioned'),
+                  subtitle: const Text('Pages with no section'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: defaultId == null
+                      ? null
+                      : () => context.push(
+                          '/notebook/$notebookId/section/$defaultId'),
+                );
+              }
+              final s = sections[i - 1];
+              return _SectionTile(
+                section: s,
+                onTap: () => context.push(
+                    '/notebook/$notebookId/section/${s.id}'),
+                onLongPress: () => _showContextMenu(context, ref, s),
+              );
+            },
           );
         },
       ),

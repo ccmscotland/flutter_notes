@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/import/import_service.dart';
+import '../../features/notebooks/notebooks_provider.dart';
 import '../../features/pages/pages_provider.dart';
 import '../../features/pages/pages_screen.dart';
 import '../../features/sections/sections_provider.dart';
@@ -18,7 +19,7 @@ class BrowsePane extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final navState = ref.watch(navStateProvider);
+    final navState    = ref.watch(navStateProvider);
     final sectionId   = navState.selectedSectionId;
     final notebookId  = navState.selectedNotebookId;
 
@@ -26,14 +27,26 @@ class BrowsePane extends ConsumerWidget {
       return const _QuickAccessPane();
     }
 
-    final pagesAsync   = ref.watch(pagesProvider(sectionId));
-    final sectionAsync = ref.watch(sectionsProvider(notebookId));
+    final pagesAsync    = ref.watch(pagesProvider(sectionId));
+    final sectionAsync  = ref.watch(sectionsProvider(notebookId));
+    final defaultIdAsync = ref.watch(defaultSectionIdProvider(notebookId));
+    final defaultId     = defaultIdAsync.valueOrNull;
+    final isDefaultSection = defaultId != null && sectionId == defaultId;
 
-    final sectionName = sectionAsync.whenOrNull(
-          data: (sections) =>
-              sections.where((s) => s.id == sectionId).firstOrNull?.name,
+    // Title: notebook name when in the hidden default section, section name otherwise.
+    final notebooksAsync = ref.watch(notebooksProvider);
+    final notebookName = notebooksAsync.whenOrNull(
+          data: (nbs) =>
+              nbs.where((n) => n.id == notebookId).firstOrNull?.name,
         ) ??
-        'Section';
+        '';
+    final sectionName = isDefaultSection
+        ? notebookName
+        : (sectionAsync.whenOrNull(
+                data: (sections) =>
+                    sections.where((s) => s.id == sectionId).firstOrNull?.name,
+              ) ??
+            'Section');
 
     final pageCount = pagesAsync.whenOrNull(data: (p) => p.length);
 
@@ -59,21 +72,30 @@ class BrowsePane extends ConsumerWidget {
                         style: Theme.of(context).textTheme.titleSmall,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (pageCount != null)
-                        Text(
-                          '$pageCount ${pageCount == 1 ? "page" : "pages"}',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
-                              ),
-                        ),
+                      Text(
+                        isDefaultSection
+                            ? 'Unsectioned pages'
+                            : '${pageCount ?? 0} ${(pageCount ?? 0) == 1 ? "page" : "pages"}',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
+                      ),
                     ],
                   ),
                 ),
+                // Add section button — visible only when in default section
+                if (isDefaultSection)
+                  IconButton(
+                    icon: const Icon(Icons.create_new_folder_outlined),
+                    tooltip: 'Add section',
+                    onPressed: () =>
+                        _addSection(context, ref, notebookId),
+                  ),
                 // Import page button
                 IconButton(
                   icon: const Icon(Icons.upload_file_outlined),
@@ -114,6 +136,47 @@ class BrowsePane extends ConsumerWidget {
       ],
       ),
     );
+  }
+
+  Future<void> _addSection(
+    BuildContext context,
+    WidgetRef ref,
+    String notebookId,
+  ) async {
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('New Section'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Name',
+            hintText: 'My Section',
+          ),
+          onSubmitted: (v) => Navigator.pop(context, v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (name == null || name.isEmpty || !context.mounted) return;
+    final section = await ref
+        .read(sectionsProvider(notebookId).notifier)
+        .create(name, 0xFF1565C0);
+    if (context.mounted) {
+      ref.read(navStateProvider.notifier).selectSection(section.id);
+    }
   }
 
   Future<void> _importPage(

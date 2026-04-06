@@ -1,7 +1,7 @@
 name: flutter_notes
 description: A hierarchical note-taking app with rich text, tables, ink drawing, and cloud sync.
 publish_to: 'none'
-version: 1.6.0+10
+version: 1.7.1+11
 
 environment:
   sdk: '>=3.3.0 <4.0.0'

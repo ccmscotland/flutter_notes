@@ -10,6 +10,7 @@ import '../export/export_service.dart';
 import '../export/export_sheet.dart';
 import '../groups/groups_provider.dart';
 import '../import/import_service.dart';
+import '../notebooks/notebooks_provider.dart';
 import '../sections/sections_provider.dart';
 import '../tabs/tabs_provider.dart';
 import 'pages_provider.dart';
@@ -26,19 +27,37 @@ class PagesScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sectionAsync = ref.watch(sectionsProvider(notebookId));
-    final pagesAsync = ref.watch(pagesProvider(sectionId));
+    final sectionAsync   = ref.watch(sectionsProvider(notebookId));
+    final pagesAsync     = ref.watch(pagesProvider(sectionId));
+    final defaultIdAsync = ref.watch(defaultSectionIdProvider(notebookId));
+    final defaultId      = defaultIdAsync.valueOrNull;
+    final isDefaultSection = defaultId != null && sectionId == defaultId;
 
-    final sectionName = sectionAsync.whenOrNull(
-          data: (sections) =>
-              sections.where((s) => s.id == sectionId).firstOrNull?.name,
+    final notebooksAsync = ref.watch(notebooksProvider);
+    final notebookName = notebooksAsync.whenOrNull(
+          data: (nbs) =>
+              nbs.where((n) => n.id == notebookId).firstOrNull?.name,
         ) ??
-        'Section';
+        '';
+
+    final sectionName = isDefaultSection
+        ? notebookName
+        : (sectionAsync.whenOrNull(
+                data: (sections) =>
+                    sections.where((s) => s.id == sectionId).firstOrNull?.name,
+              ) ??
+            'Section');
 
     return Scaffold(
       appBar: AppBar(
         title: Text(sectionName),
         actions: [
+          if (isDefaultSection)
+            IconButton(
+              icon: const Icon(Icons.create_new_folder_outlined),
+              tooltip: 'Add section',
+              onPressed: () => _addSection(context, ref),
+            ),
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () => context.push('/search'),
@@ -71,6 +90,43 @@ class PagesScreen extends ConsumerWidget {
         child: const Icon(Icons.add),
       ),
     );
+  }
+
+  Future<void> _addSection(BuildContext context, WidgetRef ref) async {
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('New Section'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Name',
+            hintText: 'My Section',
+          ),
+          onSubmitted: (v) => Navigator.pop(context, v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (name == null || name.isEmpty || !context.mounted) return;
+    await ref
+        .read(sectionsProvider(notebookId).notifier)
+        .create(name, 0xFF1565C0);
+    if (!context.mounted) return;
+    // Navigate to sections screen so user can see and manage sections.
+    context.go('/notebook/$notebookId');
   }
 
   Future<void> _importPage(BuildContext context, WidgetRef ref) async {

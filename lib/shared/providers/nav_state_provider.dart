@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/database/sections_dao.dart';
 
 @immutable
 class NavState {
@@ -19,9 +20,20 @@ class NavStateNotifier extends Notifier<NavState> {
   @override
   NavState build() => const NavState();
 
-  void selectNotebook(String notebookId) {
-    // Selecting a new notebook clears any previously selected section.
+  /// Selects [notebookId]. If the notebook has no user-created sections,
+  /// automatically selects its hidden default section so the browse pane
+  /// shows pages immediately without requiring a section tap.
+  Future<void> selectNotebook(String notebookId) async {
     state = NavState(selectedNotebookId: notebookId, selectedSectionId: null);
+    final dao = SectionsDao();
+    final hasUser = await dao.hasUserSections(notebookId);
+    if (!hasUser) {
+      final defaultSection = await dao.getOrCreateDefault(notebookId);
+      state = NavState(
+        selectedNotebookId: notebookId,
+        selectedSectionId: defaultSection.id,
+      );
+    }
   }
 
   void selectSection(String sectionId) {

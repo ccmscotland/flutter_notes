@@ -3,7 +3,7 @@ import 'package:path/path.dart';
 
 class DatabaseHelper {
   static const _dbName = 'flutter_notes.db';
-  static const _dbVersion = 7;
+  static const _dbVersion = 8;
 
   DatabaseHelper._();
   static final DatabaseHelper instance = DatabaseHelper._();
@@ -49,7 +49,8 @@ class DatabaseHelper {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         sort_order INTEGER DEFAULT 0,
-        is_deleted INTEGER DEFAULT 0
+        is_deleted INTEGER DEFAULT 0,
+        is_default INTEGER DEFAULT 0
       )
     ''');
 
@@ -162,6 +163,10 @@ class DatabaseHelper {
     if (oldVersion < 6) {
       await db.execute(
           "ALTER TABLE pages ADD COLUMN ink_strokes TEXT DEFAULT ''");
+    }
+    if (oldVersion < 8) {
+      await db.execute(
+          'ALTER TABLE sections ADD COLUMN is_default INTEGER DEFAULT 0');
     }
     if (oldVersion < 7) {
       await db.execute('''

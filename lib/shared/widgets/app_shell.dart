@@ -552,14 +552,60 @@ class _SectionsList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sectionsAsync = ref.watch(sectionsProvider(notebookId));
-    final cs            = Theme.of(context).colorScheme;
+    final sectionsAsync  = ref.watch(sectionsProvider(notebookId));
+    final defaultIdAsync = ref.watch(defaultSectionIdProvider(notebookId));
+    final defaultId      = defaultIdAsync.valueOrNull;
+    final cs             = Theme.of(context).colorScheme;
 
     return sectionsAsync.when(
       loading: () => const SizedBox.shrink(),
       error:   (_, __) => const SizedBox.shrink(),
       data: (sections) => Column(
         children: [
+          // "Unsectioned" entry — visible only when user sections exist so
+          // the user can reach pages that have no explicit section.
+          if (sections.isNotEmpty && defaultId != null) ...[
+            InkWell(
+              onTap: () =>
+                  ref.read(navStateProvider.notifier).selectSection(defaultId),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                height: 40,
+                color: selectedSectionId == defaultId
+                    ? cs.secondaryContainer
+                    : Colors.transparent,
+                child: showLabels
+                    ? Row(
+                        children: [
+                          const SizedBox(width: 24),
+                          Icon(Icons.inbox_outlined,
+                              size: 14, color: cs.onSurfaceVariant),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Unsectioned',
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: selectedSectionId == defaultId
+                                    ? cs.onSecondaryContainer
+                                    : cs.onSurfaceVariant,
+                                fontWeight: selectedSectionId == defaultId
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : Align(
+                        alignment: Alignment.center,
+                        child: Icon(Icons.inbox_outlined,
+                            size: 12, color: cs.onSurfaceVariant),
+                      ),
+              ),
+            ),
+          ],
           ...sections.map((s) {
             final isSelected = s.id == selectedSectionId;
             final sColor     = Color(s.color);

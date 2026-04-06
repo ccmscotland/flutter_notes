@@ -5,6 +5,17 @@ import '../../core/database/sections_dao.dart';
 
 final sectionsDaoProvider = Provider<SectionsDao>((ref) => SectionsDao());
 
+/// Returns the ID of the hidden default section for [notebookId], creating it
+/// if it does not yet exist.  Used by navigation and UI to identify pages that
+/// belong to no user-created section.
+final defaultSectionIdProvider = FutureProvider.family<String, String>(
+  (ref, notebookId) async {
+    final dao = ref.read(sectionsDaoProvider);
+    final s = await dao.getOrCreateDefault(notebookId);
+    return s.id;
+  },
+);
+
 final sectionsProvider = AsyncNotifierProviderFamily<SectionsNotifier,
     List<Section>, String>(SectionsNotifier.new);
 
