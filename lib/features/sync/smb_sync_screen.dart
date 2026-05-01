@@ -136,8 +136,8 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
       _syncing   = false;
       _statusOk  = result.success;
       _statusMsg = result.success
-          ? 'Synced ${result.uploaded} page${result.uploaded == 1 ? '' : 's'} successfully'
-          : 'Sync failed: ${result.error}';
+          ? 'Exported ${result.uploaded} page${result.uploaded == 1 ? '' : 's'} successfully'
+          : 'Export failed: ${result.error}';
     });
   }
 
@@ -320,8 +320,8 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
                       width: 16, height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.sync, size: 18),
-              label: Text(_syncing ? 'Syncing…' : 'Sync Now'),
+                  : const Icon(Icons.upload_file, size: 18),
+              label: Text(_syncing ? 'Exporting…' : 'Export Selected'),
             ),
           const SizedBox(width: 8),
         ],
@@ -543,7 +543,7 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
 
           // ── Selection card ────────────────────────────────────────────────
           _SectionCard(
-            title: 'What to Sync',
+            title: 'What to Export',
             icon: Icons.checklist_outlined,
             child: _loadingTree
                 ? const Padding(
