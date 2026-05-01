@@ -156,6 +156,9 @@ jobs:
   # ── GitHub Release ───────────────────────────────────────────────────────────
   release:
     needs: [build-android, build-windows]
+    # Run even when a build job fails, as long as at least one produced an
+    # artifact and the workflow wasn't cancelled.
+    if: ${{ !cancelled() && (needs.build-android.result == 'success' || needs.build-windows.result == 'success') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -167,11 +170,13 @@ jobs:
           echo "name=v$VERSION" >> $GITHUB_OUTPUT
 
       - uses: actions/download-artifact@v4
+        if: ${{ needs.build-android.result == 'success' }}
         with:
           name: android-apk
           path: artifacts/
 
       - uses: actions/download-artifact@v4
+        if: ${{ needs.build-windows.result == 'success' }}
         with:
           name: windows-zip
           path: artifacts/
@@ -183,4 +188,5 @@ jobs:
           files: |
             artifacts/app-release.apk
             artifacts/flutter_notes_windows.zip
+          fail_on_unmatched_files: false
           generate_release_notes: true
