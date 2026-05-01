@@ -87,7 +87,11 @@ class SmbSyncService {
     SmbConnect? smb;
     try {
       smb = await _connect();
-      await smb.listShares();
+      // Actually exercise the configured share, not just the server.
+      // listShares() succeeds with valid creds even if `share` is wrong,
+      // which gives a misleading green light before backup/sync fail.
+      final root = await smb.file(_root());
+      await smb.listFiles(root);
       return true;
     } catch (_) {
       return false;
@@ -391,10 +395,15 @@ class SmbSyncService {
 
   Future<void> _writeFile(
       SmbConnect smb, String path, List<int> bytes) async {
-    try { await smb.createFile(path); } catch (_) {}
-    final smbFile = await smb.file(path);
-    final sink    = await smb.openWrite(smbFile);
+    SmbFile smbFile;
+    try {
+      smbFile = await smb.createFile(path);
+    } catch (_) {
+      smbFile = await smb.file(path);
+    }
+    final sink = await smb.openWrite(smbFile);
     sink.add(Uint8List.fromList(bytes));
+    await sink.flush();
     await sink.close();
   }
 }
