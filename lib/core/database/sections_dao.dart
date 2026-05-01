@@ -17,6 +17,29 @@ class SectionsDao {
     return rows.map(_fromRow).toList();
   }
 
+  /// Returns every section including soft-deleted ones AND the hidden default
+  /// section. Used by sync so tombstones and unsectioned-page containers can
+  /// propagate. Each row also includes the raw `is_default` flag so callers
+  /// can preserve it when inserting on a remote device.
+  Future<List<Map<String, dynamic>>> getAllIncludingDeletedRaw() async {
+    final db = await _db.database;
+    return db.query(_table);
+  }
+
+  /// Inserts a section row directly, preserving the `is_default` flag.
+  /// Regular insert() always sets is_default=0 (DAO assumes user sections);
+  /// sync needs to faithfully reproduce the flag from another device.
+  Future<void> insertRaw(Map<String, dynamic> row) async {
+    final db = await _db.database;
+    await db.insert(_table, row);
+  }
+
+  /// Updates a section row directly, preserving the `is_default` flag.
+  Future<void> updateRaw(Map<String, dynamic> row) async {
+    final db = await _db.database;
+    await db.update(_table, row, where: 'id = ?', whereArgs: [row['id']]);
+  }
+
   /// Returns only user-created sections (excludes the hidden default section).
   Future<List<Section>> getByNotebook(String notebookId) async {
     final db = await _db.database;

@@ -16,6 +16,14 @@ class PagesDao {
     return rows.map(_fromRow).toList();
   }
 
+  /// Returns every page including soft-deleted ones. Used by sync so
+  /// tombstones can propagate.
+  Future<List<NotePage>> getAllIncludingDeleted() async {
+    final db = await _db.database;
+    final rows = await db.query(_table);
+    return rows.map(_fromRow).toList();
+  }
+
   Future<List<NotePage>> getBySection(String sectionId) async {
     final db = await _db.database;
     final rows = await db.query(

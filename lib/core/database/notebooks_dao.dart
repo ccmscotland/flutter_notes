@@ -16,6 +16,14 @@ class NotebooksDao {
     return rows.map(_fromRow).toList();
   }
 
+  /// Returns every notebook including soft-deleted ones. Used by sync so
+  /// tombstones (is_deleted=1) can propagate to other devices.
+  Future<List<Notebook>> getAllIncludingDeleted() async {
+    final db = await _db.database;
+    final rows = await db.query(_table);
+    return rows.map(_fromRow).toList();
+  }
+
   Future<Notebook?> getById(String id) async {
     final db = await _db.database;
     final rows = await db.query(_table, where: 'id = ?', whereArgs: [id]);

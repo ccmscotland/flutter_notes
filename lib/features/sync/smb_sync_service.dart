@@ -9,10 +9,12 @@ import 'package:path_provider/path_provider.dart';
 import 'package:smb_connect/smb_connect.dart';
 
 import '../../core/database/notebooks_dao.dart';
+import '../../core/database/page_assets_dao.dart';
 import '../../core/database/pages_dao.dart';
 import '../../core/database/sections_dao.dart';
 import '../../core/models/notebook.dart';
 import '../../core/models/page.dart';
+import '../../core/models/page_asset.dart';
 import '../../core/models/section.dart';
 import '../export/delta_converter.dart';
 import '../export/export_service.dart';
@@ -28,6 +30,39 @@ class SmbSyncResult {
     required this.success,
     this.error,
     this.uploaded = 0,
+  });
+}
+
+/// Counts of work performed during a bidirectional sync.
+class SmbBidirSyncStats {
+  int notebooksUploaded   = 0;
+  int notebooksDownloaded = 0;
+  int sectionsUploaded    = 0;
+  int sectionsDownloaded  = 0;
+  int pagesUploaded       = 0;
+  int pagesDownloaded     = 0;
+  int assetsUploaded      = 0;
+  int assetsDownloaded    = 0;
+
+  int get totalUploaded =>
+      notebooksUploaded + sectionsUploaded + pagesUploaded + assetsUploaded;
+  int get totalDownloaded =>
+      notebooksDownloaded + sectionsDownloaded + pagesDownloaded + assetsDownloaded;
+
+  String summary() =>
+      '↑$totalUploaded (nb $notebooksUploaded, sec $sectionsUploaded, pg $pagesUploaded, asset $assetsUploaded)  '
+      '↓$totalDownloaded (nb $notebooksDownloaded, sec $sectionsDownloaded, pg $pagesDownloaded, asset $assetsDownloaded)';
+}
+
+class SmbBidirSyncResult {
+  final bool success;
+  final String? error;
+  final SmbBidirSyncStats stats;
+
+  SmbBidirSyncResult({
+    required this.success,
+    this.error,
+    required this.stats,
   });
 }
 
@@ -54,15 +89,18 @@ class SmbSyncService {
   final NotebooksDao _notebooksDao;
   final SectionsDao  _sectionsDao;
   final PagesDao     _pagesDao;
+  final PageAssetsDao _assetsDao;
 
   SmbSyncService(
     this.config, {
     NotebooksDao? notebooksDao,
     SectionsDao?  sectionsDao,
     PagesDao?     pagesDao,
+    PageAssetsDao? assetsDao,
   })  : _notebooksDao = notebooksDao ?? NotebooksDao(),
         _sectionsDao  = sectionsDao  ?? SectionsDao(),
-        _pagesDao     = pagesDao     ?? PagesDao();
+        _pagesDao     = pagesDao     ?? PagesDao(),
+        _assetsDao    = assetsDao    ?? PageAssetsDao();
 
   // ── Tree loader ─────────────────────────────────────────────────────────────
 
@@ -147,6 +185,252 @@ class SmbSyncService {
       await smb?.close();
     }
   }
+
+  // ── Bi-directional sync ─────────────────────────────────────────────────────
+
+  /// Two-way sync between this device and the share. Last-write-wins per
+  /// entity using `updated_at`. Soft-deletes propagate as is_deleted=1 rows.
+  ///
+  /// Layout on share (under [_syncRoot]):
+  ///   manifest.json              — index of all entity ids → updated_at
+  ///   notebooks/<id>.json
+  ///   sections/<id>.json         — includes is_default flag
+  ///   pages/<id>.json            — includes embedded asset metadata
+  ///   assets/<pageId>/<file>     — binary asset blobs
+  Future<SmbBidirSyncResult> syncBidirectional() async {
+    SmbConnect? smb;
+    final stats = SmbBidirSyncStats();
+
+    try {
+      smb = await _connect();
+
+      // Ensure remote dirs exist before any read/write.
+      await _ensureDirs(smb, _syncRoot());
+      await _ensureDirs(smb, '${_syncRoot()}/notebooks');
+      await _ensureDirs(smb, '${_syncRoot()}/sections');
+      await _ensureDirs(smb, '${_syncRoot()}/pages');
+      await _ensureDirs(smb, '${_syncRoot()}/assets');
+
+      // 1. Load manifests.
+      final remoteManifest = await _readJson(smb, '${_syncRoot()}/manifest.json')
+          ?? <String, dynamic>{};
+      final remoteNb   = (remoteManifest['notebooks'] as Map?)?.cast<String, dynamic>() ?? {};
+      final remoteSec  = (remoteManifest['sections']  as Map?)?.cast<String, dynamic>() ?? {};
+      final remotePg   = (remoteManifest['pages']     as Map?)?.cast<String, dynamic>() ?? {};
+
+      // 2. Reconcile notebooks.
+      await _reconcileNotebooks(smb, remoteNb, stats);
+
+      // 3. Reconcile sections (raw rows preserve is_default).
+      await _reconcileSections(smb, remoteSec, stats);
+
+      // 4. Reconcile pages (and per-page assets via embedded metadata).
+      await _reconcilePages(smb, remotePg, stats);
+
+      // 5. Build & upload merged manifest from current local state.
+      await _writeJson(smb, '${_syncRoot()}/manifest.json',
+          await _buildManifest());
+
+      return SmbBidirSyncResult(success: true, stats: stats);
+    } catch (e) {
+      return SmbBidirSyncResult(
+          success: false, error: e.toString(), stats: stats);
+    } finally {
+      await smb?.close();
+    }
+  }
+
+  Future<void> _reconcileNotebooks(
+      SmbConnect smb, Map<String, dynamic> remoteIndex,
+      SmbBidirSyncStats stats) async {
+    final localList = await _notebooksDao.getAllIncludingDeleted();
+    final localById = {for (final nb in localList) nb.id: nb};
+
+    final allIds = <String>{...localById.keys, ...remoteIndex.keys};
+
+    for (final id in allIds) {
+      final local    = localById[id];
+      final remoteTs = (remoteIndex[id] as num?)?.toInt();
+      final localTs  = local?.updatedAt;
+
+      if (localTs != null && (remoteTs == null || localTs > remoteTs)) {
+        // Local newer or remote-missing → upload.
+        await _writeJson(smb, '${_syncRoot()}/notebooks/$id.json',
+            local!.toJson());
+        stats.notebooksUploaded++;
+      } else if (remoteTs != null && (localTs == null || remoteTs > localTs)) {
+        // Remote newer or local-missing → download & apply.
+        final json = await _readJson(smb, '${_syncRoot()}/notebooks/$id.json');
+        if (json == null) continue;
+        final nb = Notebook.fromJson(json);
+        if (local == null) {
+          await _notebooksDao.insert(nb);
+        } else {
+          await _notebooksDao.update(nb);
+        }
+        stats.notebooksDownloaded++;
+      }
+    }
+  }
+
+  Future<void> _reconcileSections(
+      SmbConnect smb, Map<String, dynamic> remoteIndex,
+      SmbBidirSyncStats stats) async {
+    final localRows = await _sectionsDao.getAllIncludingDeletedRaw();
+    final localById = {for (final r in localRows) r['id'] as String: r};
+
+    final allIds = <String>{...localById.keys, ...remoteIndex.keys};
+
+    for (final id in allIds) {
+      final localRow = localById[id];
+      final localTs  = (localRow?['updated_at'] as int?);
+      final remoteTs = (remoteIndex[id] as num?)?.toInt();
+
+      if (localTs != null && (remoteTs == null || localTs > remoteTs)) {
+        await _writeJson(smb, '${_syncRoot()}/sections/$id.json', localRow!);
+        stats.sectionsUploaded++;
+      } else if (remoteTs != null && (localTs == null || remoteTs > localTs)) {
+        final json = await _readJson(smb, '${_syncRoot()}/sections/$id.json');
+        if (json == null) continue;
+        // sqflite needs ints (1/0) for the boolean columns.
+        json['is_deleted'] = (json['is_deleted'] is bool)
+            ? ((json['is_deleted'] as bool) ? 1 : 0)
+            : (json['is_deleted'] as num?)?.toInt() ?? 0;
+        json['is_default'] = (json['is_default'] is bool)
+            ? ((json['is_default'] as bool) ? 1 : 0)
+            : (json['is_default'] as num?)?.toInt() ?? 0;
+        if (localRow == null) {
+          await _sectionsDao.insertRaw(Map<String, dynamic>.from(json));
+        } else {
+          await _sectionsDao.updateRaw(Map<String, dynamic>.from(json));
+        }
+        stats.sectionsDownloaded++;
+      }
+    }
+  }
+
+  Future<void> _reconcilePages(
+      SmbConnect smb, Map<String, dynamic> remoteIndex,
+      SmbBidirSyncStats stats) async {
+    final localList = await _pagesDao.getAllIncludingDeleted();
+    final localById = {for (final p in localList) p.id: p};
+
+    final allIds = <String>{...localById.keys, ...remoteIndex.keys};
+
+    for (final id in allIds) {
+      final local    = localById[id];
+      final remoteTs = (remoteIndex[id] as num?)?.toInt();
+      final localTs  = local?.updatedAt;
+
+      if (localTs != null && (remoteTs == null || localTs > remoteTs)) {
+        // Upload page + asset metadata + asset binaries.
+        final assets = await _assetsDao.getByPage(id);
+        final payload = <String, dynamic>{
+          ...local!.toJson(),
+          'assets': assets.map((a) => {
+                'id':         a.id,
+                'page_id':    a.pageId,
+                'file_name':  a.fileName,
+                'mime_type':  a.mimeType,
+                'created_at': a.createdAt,
+              }).toList(),
+        };
+        await _writeJson(smb, '${_syncRoot()}/pages/$id.json', payload);
+
+        // Upload binaries for any assets that have a local file.
+        for (final a in assets) {
+          final f = File(a.localPath);
+          if (await f.exists()) {
+            await _ensureDirs(smb, '${_syncRoot()}/assets/$id');
+            await _writeFile(smb, '${_syncRoot()}/assets/$id/${a.fileName}',
+                await f.readAsBytes());
+            stats.assetsUploaded++;
+          }
+        }
+        stats.pagesUploaded++;
+      } else if (remoteTs != null && (localTs == null || remoteTs > localTs)) {
+        // Download page; reconcile its assets.
+        final json = await _readJson(smb, '${_syncRoot()}/pages/$id.json');
+        if (json == null) continue;
+        final assetMeta = (json.remove('assets') as List?)
+                ?.cast<Map<String, dynamic>>() ?? const [];
+
+        final page = NotePage.fromJson(json);
+        if (local == null) {
+          await _pagesDao.insert(page);
+        } else {
+          await _pagesDao.update(page);
+        }
+        stats.pagesDownloaded++;
+
+        await _reconcilePageAssets(smb, page.id, assetMeta, stats);
+      }
+    }
+  }
+
+  Future<void> _reconcilePageAssets(
+      SmbConnect smb, String pageId, List<Map<String, dynamic>> remoteAssets,
+      SmbBidirSyncStats stats) async {
+    final remoteIds   = remoteAssets.map((a) => a['id'] as String).toSet();
+    final localAssets = await _assetsDao.getByPage(pageId);
+    final localIds    = localAssets.map((a) => a.id).toSet();
+
+    // Drop any local assets that are no longer in the remote list — the
+    // page-update path is what propagates asset deletions.
+    for (final a in localAssets) {
+      if (!remoteIds.contains(a.id)) {
+        await _assetsDao.delete(a.id);
+        // Best-effort: remove the orphaned file. Failure is non-fatal.
+        try { await File(a.localPath).delete(); } catch (_) {}
+      }
+    }
+
+    // Pull any remote asset binaries we don't yet have locally.
+    for (final meta in remoteAssets) {
+      final id = meta['id'] as String;
+      if (localIds.contains(id)) continue;
+
+      final fileName  = meta['file_name'] as String;
+      final mimeType  = meta['mime_type'] as String? ?? 'application/octet-stream';
+      final createdAt = (meta['created_at'] as num?)?.toInt()
+          ?? DateTime.now().millisecondsSinceEpoch;
+
+      final bytes = await _readBinary(smb, '${_syncRoot()}/assets/$pageId/$fileName');
+      if (bytes == null) continue;
+
+      final docs    = await getApplicationDocumentsDirectory();
+      final destDir = Directory(p.join(docs.path, 'assets', pageId));
+      await destDir.create(recursive: true);
+      final destFile = File(p.join(destDir.path, fileName));
+      await destFile.writeAsBytes(bytes);
+
+      await _assetsDao.insert(PageAsset(
+        id:        id,
+        pageId:    pageId,
+        fileName:  fileName,
+        localPath: destFile.path,
+        mimeType:  mimeType,
+        createdAt: createdAt,
+      ));
+      stats.assetsDownloaded++;
+    }
+  }
+
+  Future<Map<String, dynamic>> _buildManifest() async {
+    final notebooks = await _notebooksDao.getAllIncludingDeleted();
+    final sections  = await _sectionsDao.getAllIncludingDeletedRaw();
+    final pages     = await _pagesDao.getAllIncludingDeleted();
+
+    return {
+      'version':    1,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+      'notebooks': {for (final n in notebooks) n.id: n.updatedAt},
+      'sections':  {for (final s in sections)  s['id']: s['updated_at']},
+      'pages':     {for (final p in pages)     p.id: p.updatedAt},
+    };
+  }
+
+  String _syncRoot() => '${_root()}/_sync';
 
   // ── SMB backup / restore ────────────────────────────────────────────────────
 
@@ -431,5 +715,32 @@ class SmbSyncService {
     sink.add(Uint8List.fromList(bytes));
     await sink.flush();
     await sink.close();
+  }
+
+  Future<List<int>?> _readBinary(SmbConnect smb, String path) async {
+    try {
+      final file   = await smb.file(path);
+      final stream = await smb.openRead(file);
+      final bytes  = <int>[];
+      await for (final chunk in stream) bytes.addAll(chunk);
+      return bytes;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _readJson(SmbConnect smb, String path) async {
+    final bytes = await _readBinary(smb, path);
+    if (bytes == null) return null;
+    try {
+      return jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeJson(
+      SmbConnect smb, String path, Map<String, dynamic> obj) async {
+    await _writeFile(smb, path, utf8.encode(jsonEncode(obj)));
   }
 }

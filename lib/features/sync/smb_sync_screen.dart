@@ -25,6 +25,7 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
   // ── State ───────────────────────────────────────────────────────────────────
   bool _loadingTree    = false;
   bool _syncing        = false;
+  bool _bidirSyncing   = false;
   bool _testingConn    = false;
   bool _backingUp      = false;
   bool _loadingBackups = false;
@@ -136,6 +137,24 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
       _statusOk  = result.success;
       _statusMsg = result.success
           ? 'Synced ${result.uploaded} page${result.uploaded == 1 ? '' : 's'} successfully'
+          : 'Sync failed: ${result.error}';
+    });
+  }
+
+  /// Two-way merge with the share so multiple devices stay in sync.
+  Future<void> _bidirSync() async {
+    await _saveConfig();
+    setState(() { _bidirSyncing = true; _statusMsg = null; });
+
+    final result =
+        await SmbSyncService(_currentConfig()).syncBidirectional();
+
+    if (!mounted) return;
+    setState(() {
+      _bidirSyncing = false;
+      _statusOk     = result.success;
+      _statusMsg    = result.success
+          ? 'Sync complete — ${result.stats.summary()}'
           : 'Sync failed: ${result.error}';
     });
   }
@@ -342,9 +361,37 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
 
           const SizedBox(height: 12),
 
+          // ── Multi-device sync card ────────────────────────────────────────
+          _SectionCard(
+            title: 'Multi-device Sync',
+            icon: Icons.sync_alt,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Two-way merge with the share so every device using this '
+                  'sync location stays in sync. Last edit wins per page.',
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(height: 10),
+                FilledButton.icon(
+                  onPressed: _bidirSyncing ? null : _bidirSync,
+                  icon: _bidirSyncing
+                      ? const SizedBox(
+                          width: 16, height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.sync, size: 18),
+                  label: Text(_bidirSyncing ? 'Syncing…' : 'Sync Now'),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
           // ── Format card ───────────────────────────────────────────────────
           _SectionCard(
-            title: 'Sync Format',
+            title: 'Export Format',
             icon: Icons.description_outlined,
             child: Column(
               children: [
