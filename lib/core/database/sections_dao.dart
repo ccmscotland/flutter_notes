@@ -40,6 +40,23 @@ class SectionsDao {
     return (result.first['cnt'] as int) > 0;
   }
 
+  /// Gets the hidden default section for [notebookId], or null if it does
+  /// not exist. Use this when you need to read pages that live under the
+  /// default section without side-effecting the database (e.g. during a
+  /// backup, where creating a default section the user has never used would
+  /// be wrong).
+  Future<Section?> getDefault(String notebookId) async {
+    final db = await _db.database;
+    final rows = await db.query(
+      _table,
+      where: 'notebook_id = ? AND is_default = 1 AND is_deleted = 0',
+      whereArgs: [notebookId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return _fromRow(rows.first);
+  }
+
   /// Gets the hidden default section for [notebookId], creating it if absent.
   Future<Section> getOrCreateDefault(String notebookId) async {
     final db = await _db.database;

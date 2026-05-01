@@ -214,31 +214,32 @@ class ExportService {
       final sections     = await _sectionsDao.getByNotebook(nb.id);
       final manifestSecs = <Map<String, dynamic>>[];
 
-      for (final sec in sections) {
-        final pages       = await _pagesDao.getBySection(sec.id);
+      Future<Map<String, dynamic>> buildSectionEntry({
+        required String sectionId,
+        required String sectionName,
+        required int sectionColor,
+        required List<NotePage> pages,
+      }) async {
         final manifestPgs = <Map<String, dynamic>>[];
-
         for (final pg in pages) {
-          final safePg   = _sanitise(pg.title);
-          final safeSec  = _sanitise(sec.name);
-          final safeNb   = _sanitise(nb.name);
-          final mdPath   = '$safeNb/$safeSec/$safePg.md';
+          final safePg  = _sanitise(pg.title);
+          final safeSec = _sanitise(sectionName);
+          final safeNb  = _sanitise(nb.name);
+          final mdPath  = '$safeNb/$safeSec/$safePg.md';
 
-          // Human-readable Markdown (for opening in any editor)
           final ops = _parseOps(pg.content);
           final md  = '# ${pg.title}\n\n${DeltaConverter.toMarkdown(ops)}\n';
           pageFiles[mdPath] = md;
 
-          // Per-page asset records — stored page-scoped to avoid name collisions
-          final assets      = await _assetsDao.getByPage(pg.id);
-          final assetMeta   = <Map<String, dynamic>>[];
+          final assets    = await _assetsDao.getByPage(pg.id);
+          final assetMeta = <Map<String, dynamic>>[];
           for (final a in assets) {
             final zipAssetPath = 'assets/${pg.id}/${a.fileName}';
             assetMeta.add({
               'id':         a.id,
               'file_name':  a.fileName,
               'mime_type':  a.mimeType,
-              'local_path': a.localPath,   // original path — used for path-rewriting on restore
+              'local_path': a.localPath,
               'zip_path':   zipAssetPath,
             });
             final f = File(a.localPath);
@@ -249,19 +250,46 @@ class ExportService {
             'id':         pg.id,
             'title':      pg.title,
             'file':       mdPath,
-            'delta':      ops,             // raw ops for lossless restore
+            'delta':      ops,
             'created_at': pg.createdAt,
             'updated_at': pg.updatedAt,
             'assets':     assetMeta,
           });
         }
-        manifestSecs.add({
-          'id':    sec.id,
-          'name':  sec.name,
-          'color': sec.color,
+        return {
+          'id':    sectionId,
+          'name':  sectionName,
+          'color': sectionColor,
           'pages': manifestPgs,
-        });
+        };
       }
+
+      for (final sec in sections) {
+        final pages = await _pagesDao.getBySection(sec.id);
+        manifestSecs.add(await buildSectionEntry(
+          sectionId:    sec.id,
+          sectionName:  sec.name,
+          sectionColor: sec.color,
+          pages:        pages,
+        ));
+      }
+
+      // Include pages added directly to the notebook (no user-section).
+      // They live under a hidden default section that getByNotebook filters
+      // out, so they would otherwise be silently dropped from the backup.
+      final defaultSec = await _sectionsDao.getDefault(nb.id);
+      if (defaultSec != null) {
+        final pages = await _pagesDao.getBySection(defaultSec.id);
+        if (pages.isNotEmpty) {
+          manifestSecs.add(await buildSectionEntry(
+            sectionId:    defaultSec.id,
+            sectionName:  'Unsectioned',
+            sectionColor: defaultSec.color,
+            pages:        pages,
+          ));
+        }
+      }
+
       manifestNotebooks.add({
         'id':       nb.id,
         'name':     nb.name,

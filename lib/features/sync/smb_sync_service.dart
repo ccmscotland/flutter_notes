@@ -291,6 +291,32 @@ class SmbSyncService {
           'pages': manifestPgs,
         });
       }
+
+      // Include pages added directly to the notebook (no user-section).
+      // They live under a hidden default section that getByNotebook filters
+      // out, so they would otherwise be silently dropped from the backup.
+      final defaultSec = await _sectionsDao.getDefault(nb.id);
+      if (defaultSec != null) {
+        final pages = await _pagesDao.getBySection(defaultSec.id);
+        if (pages.isNotEmpty) {
+          final manifestPgs = <Map<String, dynamic>>[];
+          for (final pg in pages) {
+            final safePath = '${_sanitize(nb.name)}/Unsectioned/${_sanitize(pg.title)}.md';
+            final ops = _parseOps(pg.content);
+            pageFiles[safePath] =
+                '# ${pg.title}\n\n${DeltaConverter.toMarkdown(ops)}\n';
+            manifestPgs.add({
+              'id': pg.id, 'title': pg.title, 'file': safePath,
+              'created_at': pg.createdAt, 'updated_at': pg.updatedAt,
+            });
+          }
+          manifestSecs.add({
+            'id': defaultSec.id, 'name': 'Unsectioned', 'color': defaultSec.color,
+            'pages': manifestPgs,
+          });
+        }
+      }
+
       manifestNotebooks.add({
         'id': nb.id, 'name': nb.name, 'color': nb.color,
         'sections': manifestSecs,
