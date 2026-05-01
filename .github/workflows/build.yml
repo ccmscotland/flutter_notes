@@ -33,6 +33,7 @@ jobs:
   # ── Android APK ─────────────────────────────────────────────────────────────
   build-android:
     needs: [test]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,6 +111,7 @@ jobs:
   # ── Windows EXE ─────────────────────────────────────────────────────────────
   build-windows:
     needs: [test]
+    if: ${{ !cancelled() }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
