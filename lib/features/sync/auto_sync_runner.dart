@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../notebooks/notebooks_provider.dart';
 import '../sections/sections_provider.dart';
 import '../pages/pages_provider.dart';
+import 'auto_sync_status.dart';
 import 'smb_config.dart';
 import 'smb_sync_service.dart';
 
@@ -44,7 +45,7 @@ class _AutoSyncRunnerState extends ConsumerState<AutoSyncRunner>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     // Defer to first frame so providers are ready before we invalidate them.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeSync());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeSync('launch'));
   }
 
   @override
@@ -55,18 +56,27 @@ class _AutoSyncRunnerState extends ConsumerState<AutoSyncRunner>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _maybeSync();
+    if (state == AppLifecycleState.resumed) _maybeSync('resume');
   }
 
-  Future<void> _maybeSync() async {
+  Future<void> _maybeSync(String trigger) async {
     if (_running) return;
     final cfg = await SmbConfig.load();
     if (cfg == null || !cfg.autoSync) return;
 
     _running = true;
+    if (mounted) ref.read(autoSyncRunningProvider.notifier).state = true;
     try {
       final result = await SmbSyncService(cfg).syncBidirectional();
       if (!mounted) return;
+      ref.read(autoSyncStatusProvider.notifier).state = AutoSyncStatus(
+        at:         DateTime.now(),
+        success:    result.success,
+        error:      result.error,
+        uploaded:   result.stats.totalUploaded,
+        downloaded: result.stats.totalDownloaded,
+        trigger:    trigger,
+      );
       if (result.success) {
         if (result.stats.totalDownloaded > 0) {
           AutoSyncRunner.invalidateData(ref);
@@ -76,6 +86,7 @@ class _AutoSyncRunnerState extends ConsumerState<AutoSyncRunner>
       }
     } finally {
       _running = false;
+      if (mounted) ref.read(autoSyncRunningProvider.notifier).state = false;
     }
   }
 

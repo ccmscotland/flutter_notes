@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'auto_sync_runner.dart';
+import 'auto_sync_status.dart';
 import 'smb_config.dart';
 import 'smb_sync_service.dart';
 
@@ -421,6 +422,7 @@ class _SmbSyncScreenState extends ConsumerState<SmbSyncScreen> {
                     style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
                   ),
                 ),
+                _AutoSyncStatusLine(),
               ],
             ),
           ),
@@ -715,6 +717,59 @@ class _SmbSyncScreenState extends ConsumerState<SmbSyncScreen> {
                 controlAffinity: ListTileControlAffinity.leading,
               ))
           .toList(),
+    );
+  }
+}
+
+// ── Auto-sync status line ──────────────────────────────────────────────────────
+
+class _AutoSyncStatusLine extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs       = Theme.of(context).colorScheme;
+    final running  = ref.watch(autoSyncRunningProvider);
+    final status   = ref.watch(autoSyncStatusProvider);
+
+    final String text;
+    final IconData icon;
+    final Color color;
+
+    if (running) {
+      text  = 'Auto-syncing now…';
+      icon  = Icons.sync;
+      color = cs.primary;
+    } else if (status == null) {
+      text  = 'Auto-sync has not run this session yet.';
+      icon  = Icons.schedule_outlined;
+      color = cs.onSurfaceVariant;
+    } else {
+      final t = DateFormat('HH:mm:ss').format(status.at);
+      if (status.success) {
+        text  = 'Last auto-sync $t (${status.trigger}) — '
+                '↑${status.uploaded} ↓${status.downloaded}';
+        icon  = Icons.check_circle_outline;
+        color = Colors.green.shade700;
+      } else {
+        text  = 'Last auto-sync $t (${status.trigger}) — failed: '
+                '${status.error ?? 'unknown error'}';
+        icon  = Icons.error_outline;
+        color = cs.error;
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(text,
+                style: TextStyle(fontSize: 12, color: color)),
+          ),
+        ],
+      ),
     );
   }
 }
