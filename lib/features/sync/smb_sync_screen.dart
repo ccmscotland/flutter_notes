@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'auto_sync_runner.dart';
 import 'smb_config.dart';
 import 'smb_sync_service.dart';
 
-class SmbSyncScreen extends StatefulWidget {
+class SmbSyncScreen extends ConsumerStatefulWidget {
   const SmbSyncScreen({super.key});
 
   @override
-  State<SmbSyncScreen> createState() => _SmbSyncScreenState();
+  ConsumerState<SmbSyncScreen> createState() => _SmbSyncScreenState();
 }
 
-class _SmbSyncScreenState extends State<SmbSyncScreen> {
+class _SmbSyncScreenState extends ConsumerState<SmbSyncScreen> {
   // ── Connection form ─────────────────────────────────────────────────────────
   late final TextEditingController _host;
   late final TextEditingController _share;
@@ -21,6 +23,7 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
   late final TextEditingController _backupPath;
   String _format = 'markdown';
   bool _passVisible = false;
+  bool _autoSync   = false;
 
   // ── State ───────────────────────────────────────────────────────────────────
   bool _loadingTree    = false;
@@ -74,6 +77,7 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
         _domain.text     = cfg.domain;
         _format          = cfg.format;
         _backupPath.text = cfg.backupPath;
+        _autoSync        = cfg.autoSync;
       });
     }
   }
@@ -87,6 +91,7 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
         domain:     _domain.text.trim(),
         format:     _format,
         backupPath: _backupPath.text.trim(),
+        autoSync:   _autoSync,
       );
 
   Future<void> _saveConfig() => _currentConfig().save();
@@ -157,6 +162,9 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
           ? 'Sync complete — ${result.stats.summary()}'
           : 'Sync failed: ${result.error}';
     });
+    if (result.success && result.stats.totalDownloaded > 0) {
+      AutoSyncRunner.invalidateData(ref);
+    }
   }
 
   // ── Backup / restore ────────────────────────────────────────────────────────
@@ -213,6 +221,7 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
           ? 'Restored ${result.uploaded} page${result.uploaded == 1 ? '' : 's'}'
           : 'Restore failed: ${result.error}';
     });
+    if (result.success) AutoSyncRunner.invalidateData(ref);
   }
 
   // ── Selection helpers ────────────────────────────────────────────────────────
@@ -382,6 +391,21 @@ class _SmbSyncScreenState extends State<SmbSyncScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(Icons.sync, size: 18),
                   label: Text(_bidirSyncing ? 'Syncing…' : 'Sync Now'),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: _autoSync,
+                  onChanged: (v) async {
+                    setState(() => _autoSync = v);
+                    await _saveConfig();
+                  },
+                  title: const Text('Auto-sync'),
+                  subtitle: Text(
+                    'Sync automatically on app launch and when the app '
+                    'returns to the foreground.',
+                    style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                  ),
                 ),
               ],
             ),

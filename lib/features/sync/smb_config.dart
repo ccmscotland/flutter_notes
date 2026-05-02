@@ -10,6 +10,7 @@ class SmbConfig {
   final String domain;
   final String format;      // 'markdown' | 'html'
   final String backupPath;  // relative to basePath, default '_backups'
+  final bool   autoSync;    // bidirectional sync on launch + foreground resume
 
   const SmbConfig({
     required this.host,
@@ -20,6 +21,7 @@ class SmbConfig {
     this.domain = '',
     this.format = 'markdown',
     this.backupPath = '_backups',
+    this.autoSync = false,
   });
 
   static const _kHost       = 'smb_host';
@@ -30,6 +32,7 @@ class SmbConfig {
   static const _kDomain     = 'smb_domain';
   static const _kFormat     = 'smb_format';
   static const _kBackupPath = 'smb_backup_path';
+  static const _kAutoSync   = 'smb_auto_sync';
 
   static Future<SmbConfig?> load() async {
     final p = await SharedPreferences.getInstance();
@@ -44,6 +47,7 @@ class SmbConfig {
       domain:     p.getString(_kDomain)     ?? '',
       format:     p.getString(_kFormat)     ?? 'markdown',
       backupPath: p.getString(_kBackupPath) ?? '_backups',
+      autoSync:   p.getBool(_kAutoSync)     ?? false,
     );
   }
 
@@ -57,12 +61,13 @@ class SmbConfig {
     await p.setString(_kDomain,     domain);
     await p.setString(_kFormat,     format);
     await p.setString(_kBackupPath, backupPath);
+    await p.setBool  (_kAutoSync,   autoSync);
   }
 
   SmbConfig copyWith({
     String? host, String? share, String? basePath,
     String? username, String? password, String? domain,
-    String? format, String? backupPath,
+    String? format, String? backupPath, bool? autoSync,
   }) => SmbConfig(
     host:       host       ?? this.host,
     share:      share      ?? this.share,
@@ -72,5 +77,6 @@ class SmbConfig {
     domain:     domain     ?? this.domain,
     format:     format     ?? this.format,
     backupPath: backupPath ?? this.backupPath,
+    autoSync:   autoSync   ?? this.autoSync,
   );
 }

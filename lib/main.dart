@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'features/sync/auto_sync_runner.dart';
 import 'router.dart';
 import 'shared/theme/app_theme.dart';
 import 'shared/providers/theme_provider.dart';
@@ -35,6 +36,8 @@ class FlutterNotesApp extends ConsumerWidget {
       themeMode: themeMode,
       routerConfig: appRouter,
       debugShowCheckedModeBanner: false,
+      builder: (context, child) =>
+          AutoSyncRunner(child: child ?? const SizedBox.shrink()),
       localizationsDelegates: const [
         FlutterQuillLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
