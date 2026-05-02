@@ -11,7 +11,7 @@ import '../providers/nav_state_provider.dart';
 import '../utils/responsive.dart';
 import 'browse_pane.dart';
 import '../../features/groups/groups_screen.dart';
-import '../../features/sync/sync_settings_screen.dart';
+import '../../features/sync/smb_sync_icon_button.dart';
 import '../../features/license/activation_screen.dart';
 import '../../features/license/license_gate.dart';
 import '../../features/license/license_provider.dart';
@@ -201,13 +201,6 @@ class _SelectPagePlaceholder extends StatelessWidget {
   }
 }
 
-void _openSyncSettings(BuildContext context) {
-  showDialog<void>(
-    context: context,
-    builder: (_) => const Dialog.fullscreen(child: SyncSettingsScreen()),
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // App Rail (left navigation panel — wide mode)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -360,11 +353,7 @@ class _RailFooter extends ConsumerWidget {
           tooltip: 'Search',
           onPressed: () => context.push('/search'),
         ),
-        IconButton(
-          icon: const Icon(Icons.sync),
-          tooltip: 'Sync',
-          onPressed: () => _openSyncSettings(context),
-        ),
+        const SmbSyncIconButton(),
         // Theme toggle
         IconButton(
           icon: Icon(isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),

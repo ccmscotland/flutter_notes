@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/models/notebook.dart';
 import '../groups/groups_screen.dart';
-import '../sync/sync_settings_screen.dart';
+import '../sync/smb_sync_icon_button.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../shared/utils/responsive.dart';
 import '../../shared/widgets/color_picker_dialog.dart';
@@ -46,13 +46,7 @@ class NotebooksScreen extends ConsumerWidget {
             icon: const Icon(Icons.search),
             onPressed: () => context.push('/search'),
           ),
-          IconButton(
-            icon: const Icon(Icons.sync),
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (_) => const Dialog.fullscreen(child: SyncSettingsScreen()),
-            ),
-          ),
+          const SmbSyncIconButton(),
           IconButton(
             icon: Icon(isDark
                 ? Icons.light_mode_outlined
