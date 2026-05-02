@@ -350,19 +350,33 @@ class _SmbSyncScreenState extends ConsumerState<SmbSyncScreen> {
                 _field(_user,   'Username'),
                 _field(_pass,   'Password', obscure: true),
                 _field(_domain, 'Domain (optional)'),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: _testingConn ? null : _testConnection,
-                      icon: _testingConn
-                          ? const SizedBox(
-                              width: 14, height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.network_check, size: 16),
-                      label: const Text('Test Connection'),
-                    ),
-                  ],
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // ── Actions card ──────────────────────────────────────────────────
+          _SectionCard(
+            title: 'Actions',
+            icon: Icons.build_outlined,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Optional. Verifies the share is reachable and loads the '
+                  'list of items below for selective export and backup.',
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _testingConn ? null : _testConnection,
+                  icon: _testingConn
+                      ? const SizedBox(
+                          width: 14, height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.network_check, size: 16),
+                  label: const Text('Test Connection'),
                 ),
               ],
             ),
