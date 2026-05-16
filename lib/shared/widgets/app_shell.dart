@@ -310,8 +310,7 @@ class _RailFooter extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isPro      = ref.watch(isProProvider);
-    final themeMode  = ref.watch(themeProvider).valueOrNull ?? ThemeMode.light;
-    final isDark     = themeMode == ThemeMode.dark;
+    final isDark     = Theme.of(context).brightness == Brightness.dark;
     final cs         = Theme.of(context).colorScheme;
 
     return Column(

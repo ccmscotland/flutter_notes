@@ -28,7 +28,7 @@ class FlutterNotesApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode =
-        ref.watch(themeProvider).valueOrNull ?? ThemeMode.light;
+        ref.watch(themeProvider).valueOrNull ?? ThemeMode.system;
     return MaterialApp.router(
       title: 'Flutter Notes',
       theme: AppTheme.light(),
