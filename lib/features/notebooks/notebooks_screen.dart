@@ -23,8 +23,7 @@ class NotebooksScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final notebooksAsync = ref.watch(notebooksProvider);
     final isPro          = ref.watch(isProProvider);
-    final themeMode      = ref.watch(themeProvider).valueOrNull ?? ThemeMode.light;
-    final isDark         = themeMode == ThemeMode.dark;
+    final isDark         = Theme.of(context).brightness == Brightness.dark;
     final cs             = Theme.of(context).colorScheme;
 
     return Scaffold(
