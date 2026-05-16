@@ -30,6 +30,19 @@ gradle.afterProject { p ->
             targetCompatibility JavaVersion.VERSION_17
         }
     }
+    // AGP 8+ requires every Android module to declare a namespace. Older
+    // plugins (e.g. msal_flutter 2.0.1) still rely on the legacy
+    // AndroidManifest `package` attribute — read it back here so the build
+    // doesn't fail on configure.
+    if (p.hasProperty('android') && p.android.namespace == null) {
+        def manifest = new File(p.projectDir, 'src/main/AndroidManifest.xml')
+        if (manifest.exists()) {
+            def pkg = new XmlSlurper().parse(manifest).@package.text()
+            if (pkg) {
+                p.android.namespace = pkg
+            }
+        }
+    }
 }
 
 tasks.register("clean", Delete) {
