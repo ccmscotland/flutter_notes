@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <!-- UpgradeCode must NEVER change between versions - it is what links upgrades together -->
+  <Product Id="*"
+           Name="Flutter Notes"
+           Language="1033"
+           Version="1.10.0"
+           Manufacturer="ccmscotland"
+           UpgradeCode="283CBAFE-7AC3-4189-A768-833CF0B3C045">
+
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64"
+             Description="Flutter Notes 1.10.0 Installer" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Flutter Notes is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Flutter Notes" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="AppMenuFolder" Name="Flutter Notes" />
+      </Directory>
+    </Directory>
+
+    <!-- Start Menu shortcut -->
+    <DirectoryRef Id="AppMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="C298D8CA-D2BC-4128-9B11-8247EB868F33" Win64="yes">
+        <Shortcut Id="AppShortcut"
+                  Name="Flutter Notes"
+                  Description="Hierarchical note-taking with rich text, tables, ink drawing, and cloud sync"
+                  Target="[INSTALLFOLDER]flutter_notes.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveAppMenuFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\ccmscotland\FlutterNotes"
+                       Name="installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="MainFeature" Title="Flutter Notes" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Product>
+</Wix>
