@@ -15,6 +15,7 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "openoptions"
+if (coreOnly) rootProject.buildFileName = "build.core-only.gradle.kts"
 include(":core:hidpp")
 // `./gradlew -Popenoptions.coreOnly=true :core:hidpp:test` builds the pure-Kotlin core without the Android app.
 if (!coreOnly) {
