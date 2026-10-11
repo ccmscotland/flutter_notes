@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -17,38 +18,81 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.openoptions.service.DeviceManager
+import dev.openoptions.ui.DeviceScreen
+import dev.openoptions.ui.DeviceViewModel
+import dev.openoptions.ui.DevicesScreen
 import dev.openoptions.ui.OpenOptionsTheme
 import dev.openoptions.ui.SpikeScreen
 
+sealed class Screen {
+    data object Devices : Screen()
+    data class Device(val address: String) : Screen()
+    data object Diagnostics : Screen()
+}
+
 class MainActivity : ComponentActivity() {
 
-    private val vm: SpikeViewModel by viewModels()
+    private val spikeVm: SpikeViewModel by viewModels()
     private var hasBluetoothPermission by mutableStateOf(false)
+    private var screen by mutableStateOf<Screen>(Screen.Devices)
 
     private val requestBluetooth = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         hasBluetoothPermission = granted
-        vm.log("bluetooth permission ${if (granted) "granted" else "denied"}")
+        spikeVm.log("bluetooth permission ${if (granted) "granted" else "denied"}")
     }
+
+    private val requestNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DeviceManager.init(application)
         hasBluetoothPermission = checkBluetoothPermission()
+        if (!hasBluetoothPermission) requestBluetoothPermission()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         handleUsbIntent(intent)
         setContent {
             OpenOptionsTheme {
-                SpikeScreen(
-                    vm = vm,
-                    hasBluetoothPermission = hasBluetoothPermission,
-                    onRequestBluetooth = ::requestBluetoothPermission,
-                    onCopyLog = ::copyLog,
-                )
+                when (val s = screen) {
+                    Screen.Devices -> DevicesScreen(
+                        hasBluetoothPermission = hasBluetoothPermission,
+                        onRequestBluetooth = ::requestBluetoothPermission,
+                        onOpenDevice = { screen = Screen.Device(it) },
+                        onOpenDiagnostics = { screen = Screen.Diagnostics },
+                    )
+                    is Screen.Device -> {
+                        BackHandler { screen = Screen.Devices }
+                        val vm: DeviceViewModel = viewModel(key = s.address, factory = deviceVmFactory(s.address))
+                        DeviceScreen(vm = vm, onBack = { screen = Screen.Devices }, onCopyLog = { copy(vm.logText()) })
+                    }
+                    Screen.Diagnostics -> {
+                        BackHandler { screen = Screen.Devices }
+                        SpikeScreen(
+                            vm = spikeVm,
+                            hasBluetoothPermission = hasBluetoothPermission,
+                            onRequestBluetooth = ::requestBluetoothPermission,
+                            onCopyLog = { copy(spikeVm.logText()) },
+                            onBack = { screen = Screen.Devices },
+                        )
+                    }
+                }
             }
         }
     }
 
+    private fun deviceVmFactory(address: String) = object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = DeviceViewModel(application, address) as T
+    }
+
     override fun onResume() {
         super.onResume()
-        vm.refreshAccessibilityStatus()
+        spikeVm.refreshAccessibilityStatus()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -58,8 +102,9 @@ class MainActivity : ComponentActivity() {
 
     private fun handleUsbIntent(intent: Intent?) {
         if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
-            vm.log("usb attached intent received")
-            vm.refreshUsb()
+            spikeVm.log("usb attached intent received")
+            spikeVm.refreshUsb()
+            screen = Screen.Diagnostics
         }
     }
 
@@ -72,9 +117,8 @@ class MainActivity : ComponentActivity() {
         else hasBluetoothPermission = true
     }
 
-    private fun copyLog() {
-        val cm = getSystemService(ClipboardManager::class.java)
-        cm.setPrimaryClip(ClipData.newPlainText("openoptions-log", vm.logText()))
+    private fun copy(text: String) {
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("openoptions-log", text))
         Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show()
     }
 }

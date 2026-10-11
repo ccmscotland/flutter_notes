@@ -38,16 +38,22 @@ import dev.openoptions.transport.UsbHidppTransport
 @SuppressLint("MissingPermission")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SpikeScreen(vm: SpikeViewModel, hasBluetoothPermission: Boolean, onRequestBluetooth: () -> Unit, onCopyLog: () -> Unit) {
+fun SpikeScreen(vm: SpikeViewModel, hasBluetoothPermission: Boolean, onRequestBluetooth: () -> Unit, onCopyLog: () -> Unit, onBack: () -> Unit) {
     val state: SpikeState by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(hasBluetoothPermission) { if (hasBluetoothPermission) vm.refreshBonded() }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("OpenOptions · Phase 0 spike") }) }) { padding ->
+    Scaffold(topBar = {
+        TopAppBar(title = { Text("Diagnostics") }, navigationIcon = { TextButton(onClick = onBack) { Text("Back") } })
+    }) { padding ->
         Column(
             modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+
+            Section("About this screen") {
+                Text("Probes a device directly and shows every HID++ frame. While a diagnostics connection is open, managed devices release their link; they reconnect when you disconnect here.", style = MaterialTheme.typography.bodySmall)
+            }
 
             Section("Connection") {
                 Text(state.connection ?: "Not connected", style = MaterialTheme.typography.bodyMedium)
@@ -97,7 +103,7 @@ fun SpikeScreen(vm: SpikeViewModel, hasBluetoothPermission: Boolean, onRequestBl
 
             state.settings?.let {
                 SettingsSection(
-                    vm, it, enabled = !state.busy,
+                    actions = vm, settings = it, enabled = !state.busy,
                     bindings = state.bindings, accessibilityEnabled = state.accessibilityEnabled, lastButtonEvent = state.lastButtonEvent,
                 )
             }

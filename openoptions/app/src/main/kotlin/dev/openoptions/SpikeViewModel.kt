@@ -76,7 +76,7 @@ data class SpikeState(
 )
 
 @SuppressLint("MissingPermission")
-class SpikeViewModel(app: Application) : AndroidViewModel(app) {
+class SpikeViewModel(app: Application) : AndroidViewModel(app), dev.openoptions.ui.SettingsActions {
 
     private val _state = MutableStateFlow(SpikeState())
     val state: StateFlow<SpikeState> = _state
@@ -258,21 +258,21 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
         readSettings(d.deviceIndex)
     }
 
-    fun setDpi(dpi: Int) = applySetting("dpi=$dpi") { AdjustableDpi.set(it, dpi) }
-    fun setRatchet(ratchet: Boolean) = applySetting("ratchet=$ratchet") { SmartShift.set(it, ratchet = ratchet) }
-    fun setSmartShiftThreshold(t: Int) = applySetting("smartShiftThreshold=$t") { SmartShift.set(it, threshold = t) }
-    fun setWheelInverted(v: Boolean) = applySetting("wheelInverted=$v") { HiResWheel.set(it, inverted = v) }
-    fun setWheelHighRes(v: Boolean) = applySetting("wheelHighRes=$v") { HiResWheel.set(it, highResolution = v) }
-    fun setThumbInverted(v: Boolean) = applySetting("thumbInverted=$v") { ThumbWheel.set(it, inverted = v) }
-    fun setFnKeysDefault(v: Boolean) = applySetting("fKeysDefault=$v") { FnInversion.set(it, v) }
-    fun setBacklightEnabled(v: Boolean) = applySetting("backlightEnabled=$v") { Backlight.write(it, enabled = v) }
-    fun setBacklightMode(mode: Int) = applySetting("backlightMode=$mode") { Backlight.write(it, mode = mode) }
-    fun setBacklightLevel(level: Int) = applySetting("backlightLevel=$level") { Backlight.write(it, level = level) }
+    override fun setDpi(dpi: Int) = applySetting("dpi=$dpi") { AdjustableDpi.set(it, dpi) }
+    override fun setRatchet(ratchet: Boolean) = applySetting("ratchet=$ratchet") { SmartShift.set(it, ratchet = ratchet) }
+    override fun setSmartShiftThreshold(t: Int) = applySetting("smartShiftThreshold=$t") { SmartShift.set(it, threshold = t) }
+    override fun setWheelInverted(v: Boolean) = applySetting("wheelInverted=$v") { HiResWheel.set(it, inverted = v) }
+    override fun setWheelHighRes(v: Boolean) = applySetting("wheelHighRes=$v") { HiResWheel.set(it, highResolution = v) }
+    override fun setThumbInverted(v: Boolean) = applySetting("thumbInverted=$v") { ThumbWheel.set(it, inverted = v) }
+    override fun setFnKeysDefault(v: Boolean) = applySetting("fKeysDefault=$v") { FnInversion.set(it, v) }
+    override fun setBacklightEnabled(v: Boolean) = applySetting("backlightEnabled=$v") { Backlight.write(it, enabled = v) }
+    override fun setBacklightMode(mode: Int) = applySetting("backlightMode=$mode") { Backlight.write(it, mode = mode) }
+    override fun setBacklightLevel(level: Int) = applySetting("backlightLevel=$level") { Backlight.write(it, level = level) }
     fun refreshAccessibilityStatus() {
         _state.update { it.copy(accessibilityEnabled = ActionAccessibilityService.isRunning) }
     }
 
-    fun openAccessibilitySettings() {
+    override fun openAccessibilitySettings() {
         val app = getApplication<Application>()
         runCatching {
             app.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -280,7 +280,7 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Diverts [cid] to the app and binds it to [action]; NONE restores the device's own behaviour. */
-    fun bind(cid: Int, action: AndroidAction) = runBusy {
+    override fun bind(cid: Int, action: AndroidAction) = runBusy {
         val d = currentDevice() ?: run { log("bind: not connected"); return@runBusy }
         val divert = action != AndroidAction.NONE
         ReprogControls.setReporting(d, cid, diverted = divert)
@@ -333,7 +333,7 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
         tracker.reset()
     }
 
-    fun switchHost(host: Int) = runBusy {
+    override fun switchHost(host: Int) = runBusy {
         val d = currentDevice() ?: return@runBusy
         log("switching device to host ${host + 1}; it will disconnect from this phone")
         undivertAll()
@@ -342,6 +342,7 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun attach(ch: HidppChannel, label: String) {
+        dev.openoptions.service.DeviceManager.diagnosticsHold = true
         channel = ch
         _state.update { it.copy(connection = label, results = emptyList(), settings = null, settingsDeviceIndex = null) }
         traceJob = viewModelScope.launch {
@@ -359,6 +360,7 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
         reprogFeatureIndex = null
         channel?.let { runCatching { it.close() }; log("disconnected") }
         channel = null
+        dev.openoptions.service.DeviceManager.diagnosticsHold = false
         _state.update { it.copy(connection = null, settings = null, settingsDeviceIndex = null, bindings = emptyMap()) }
     }
 

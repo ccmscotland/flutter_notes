@@ -66,6 +66,9 @@ class BleHidppTransport(
     private var gatt: BluetoothGatt? = null
     private var hidppChar: BluetoothGattCharacteristic? = null
     private val ready = CompletableDeferred<Unit>()
+
+    /** Completes when the GATT link is gone, whether the device dropped it or [close] was called. */
+    val closed = CompletableDeferred<Unit>()
     private val writeMutex = Mutex()
 
     @Volatile
@@ -79,8 +82,11 @@ class BleHidppTransport(
                 // the onMtuChanged callback sometimes never fires, which stalled service discovery.
                 if (!g.discoverServices()) ready.completeExceptionally(IOException("discoverServices refused"))
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                ready.completeExceptionally(IOException("GATT disconnected (status $status)"))
+                ready.completeExceptionally(IOException("GATT disconnected (status ${gattStatusName(status)})"))
                 writeAck?.completeExceptionally(IOException("GATT disconnected"))
+                readAck?.completeExceptionally(IOException("GATT disconnected"))
+                closed.complete(Unit)
+                runCatching { g.close() }
             }
         }
 
@@ -223,6 +229,7 @@ class BleHidppTransport(
     override fun close() {
         gatt?.let { runCatching { it.disconnect() }; runCatching { it.close() } }
         gatt = null
+        closed.complete(Unit)
     }
 
     companion object {
