@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -15,19 +17,28 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.openoptions.SpikeViewModel
+import dev.openoptions.actions.AndroidAction
 import dev.openoptions.hidpp.DeviceSettingsSnapshot
 import dev.openoptions.hidpp.features.BacklightInfo
 import dev.openoptions.hidpp.features.SmartShift
 
 /** Live device settings read over HID++; every control writes straight to the device and re-reads. */
 @Composable
-fun SettingsSection(vm: SpikeViewModel, settings: DeviceSettingsSnapshot, enabled: Boolean) {
+fun SettingsSection(
+    vm: SpikeViewModel,
+    settings: DeviceSettingsSnapshot,
+    enabled: Boolean,
+    bindings: Map<Int, AndroidAction> = emptyMap(),
+    accessibilityEnabled: Boolean = false,
+    lastButtonEvent: String? = null,
+) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Device settings", style = MaterialTheme.typography.titleMedium)
@@ -121,16 +132,45 @@ fun SettingsSection(vm: SpikeViewModel, settings: DeviceSettingsSnapshot, enable
 
             if (settings.controls.isNotEmpty()) {
                 Group("Buttons and keys (${settings.controls.size})") {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            if (accessibilityEnabled) "Accessibility service: on" else "Accessibility service: off (needed for Back, Home, Recents, …)",
+                            Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                        )
+                        if (!accessibilityEnabled) OutlinedButton(onClick = vm::openAccessibilitySettings) { Text("Enable") }
+                    }
+                    lastButtonEvent?.let { Text("Last: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
                     settings.controls.forEach { c ->
-                        val caps = buildList {
-                            if (c.reprogrammable) add("remap")
-                            if (c.divertable) add("divert")
-                            if (c.rawXy) add("gesture")
-                            if (c.isFnKey) add("fn")
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val caps = buildList {
+                                if (c.reprogrammable) add("remap")
+                                if (c.divertable) add("divert")
+                                if (c.rawXy) add("gesture")
+                                if (c.isFnKey) add("fn")
+                            }
+                            Text("${c.name}  ·  ${caps.joinToString(", ").ifEmpty { "fixed" }}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            if (c.divertable) {
+                                ActionPicker(current = bindings[c.cid] ?: AndroidAction.NONE, enabled = enabled) { vm.bind(c.cid, it) }
+                            }
                         }
-                        Text("${c.name}  ·  ${caps.joinToString(", ").ifEmpty { "fixed" }}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionPicker(current: AndroidAction, enabled: Boolean, onPick: (AndroidAction) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Column {
+        OutlinedButton(onClick = { open = true }, enabled = enabled) { Text(current.label) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            AndroidAction.entries.forEach { a ->
+                DropdownMenuItem(
+                    text = { Text(a.label + if (a.needsAccessibility) "  (accessibility)" else "") },
+                    onClick = { open = false; if (a != current) onPick(a) },
+                )
             }
         }
     }

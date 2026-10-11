@@ -16,7 +16,17 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.openoptions.actions.ActionAccessibilityService
+import dev.openoptions.actions.ActionRunner
+import dev.openoptions.actions.AndroidAction
 import dev.openoptions.hidpp.DeviceProbe
+import dev.openoptions.hidpp.Features
+import dev.openoptions.hidpp.features.ControlEvent
+import dev.openoptions.hidpp.features.ControlEvents
+import dev.openoptions.hidpp.features.DivertedButtonTracker
+import dev.openoptions.hidpp.features.ReprogControls
+import android.provider.Settings
+import kotlinx.coroutines.runBlocking
 import dev.openoptions.hidpp.DeviceSettings
 import dev.openoptions.hidpp.DeviceSettingsSnapshot
 import dev.openoptions.hidpp.Hidpp20Device
@@ -58,6 +68,10 @@ data class SpikeState(
     /** Settings of the device most recently probed, keyed by its device index. */
     val settingsDeviceIndex: Int? = null,
     val settings: DeviceSettingsSnapshot? = null,
+    /** Control id → action for diverted buttons on the current device. */
+    val bindings: Map<Int, AndroidAction> = emptyMap(),
+    val accessibilityEnabled: Boolean = false,
+    val lastButtonEvent: String? = null,
     val log: List<String> = emptyList(),
 )
 
@@ -70,6 +84,9 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
     private val usbManager = app.getSystemService(Context.USB_SERVICE) as UsbManager
     private var channel: HidppChannel? = null
     private var traceJob: Job? = null
+    private var eventJob: Job? = null
+    private var reprogFeatureIndex: Int? = null
+    private val tracker = DivertedButtonTracker()
 
     private val usbPermissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -125,14 +142,14 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun connectUsb(device: UsbDevice) = runBusy {
-        disconnect()
+        teardown()
         val transport = UsbHidppTransport.open(usbManager, device, ::log)
         attach(HidppChannel(transport, viewModelScope), transport.description)
         probeIndices(listOf(HidppChannel.RECEIVER_INDEX, 1, 2, 3, 4, 5, 6))
     }
 
     fun connectBle(device: BluetoothDevice) = runBusy {
-        disconnect()
+        teardown()
         val transport = BleHidppTransport(getApplication<Application>(), device, ::log)
         transport.connect()
         val ch = HidppChannel(transport, viewModelScope, timeoutMs = 4_000)
@@ -227,6 +244,7 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun readSettings(index: Int) {
         val d = currentDevice(index) ?: return
         val snap = DeviceSettings.read(d) { section, e -> log("settings: $section failed: ${e.message}") }
+        reprogFeatureIndex = runCatching { d.featureIndex(Features.REPROG_CONTROLS_V4) }.getOrNull()
         _state.update { it.copy(settingsDeviceIndex = index, settings = snap) }
         log("settings read: dpi=${snap.dpi?.current} smartShift=${snap.smartShift} wheel=${snap.wheel} thumb=${snap.thumbWheel} backlight=${snap.backlight} fn=${snap.fnInversion} hosts=${snap.hosts?.hosts?.map { h -> "${h.index}:${h.name ?: "-"}${if (h.isCurrent) "*" else ""}" }} controls=${snap.controls.size}")
         snap.controls.forEach { c -> log("    control ${c.name} cid=0x%04X flags=0x%03X group=%d".format(c.cid, c.flags, c.group)) }
@@ -250,11 +268,77 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
     fun setBacklightEnabled(v: Boolean) = applySetting("backlightEnabled=$v") { Backlight.write(it, enabled = v) }
     fun setBacklightMode(mode: Int) = applySetting("backlightMode=$mode") { Backlight.write(it, mode = mode) }
     fun setBacklightLevel(level: Int) = applySetting("backlightLevel=$level") { Backlight.write(it, level = level) }
+    fun refreshAccessibilityStatus() {
+        _state.update { it.copy(accessibilityEnabled = ActionAccessibilityService.isRunning) }
+    }
+
+    fun openAccessibilitySettings() {
+        val app = getApplication<Application>()
+        runCatching {
+            app.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }.onFailure { log("could not open accessibility settings: ${it.message}") }
+    }
+
+    /** Diverts [cid] to the app and binds it to [action]; NONE restores the device's own behaviour. */
+    fun bind(cid: Int, action: AndroidAction) = runBusy {
+        val d = currentDevice() ?: run { log("bind: not connected"); return@runBusy }
+        val divert = action != AndroidAction.NONE
+        ReprogControls.setReporting(d, cid, diverted = divert)
+        val rep = ReprogControls.reporting(d, cid)
+        log("bind cid=0x%04X → %s (device reports diverted=%s)".format(cid, action.label, rep.diverted))
+        _state.update { s ->
+            s.copy(bindings = if (divert) s.bindings + (cid to action) else s.bindings - cid)
+        }
+        if (divert && action.needsAccessibility && !ActionAccessibilityService.isRunning) {
+            log("note: ${action.label} needs the accessibility service — enable it in Settings")
+        }
+    }
+
+    private fun onNotification(frame: HidppFrame) {
+        val idx = reprogFeatureIndex ?: return
+        if (frame.deviceIndex != _state.value.settingsDeviceIndex) return
+        when (val e = ControlEvents.parse(frame, idx)) {
+            is ControlEvent.Buttons -> {
+                val t = tracker.update(e.pressed)
+                for (cid in t.pressed) {
+                    val action = _state.value.bindings[cid]
+                    val name = dev.openoptions.hidpp.features.ControlIds.name(cid)
+                    if (action == null) {
+                        log("button $name pressed (diverted, no action)")
+                        _state.update { it.copy(lastButtonEvent = "$name pressed") }
+                        continue
+                    }
+                    val err = ActionRunner.run(getApplication<Application>(), action)
+                    val msg = "$name → ${action.label}${if (err != null) " FAILED: $err" else ""}"
+                    log("button $msg")
+                    _state.update { it.copy(lastButtonEvent = msg) }
+                }
+                for (cid in t.released) log("button ${dev.openoptions.hidpp.features.ControlIds.name(cid)} released")
+            }
+            is ControlEvent.RawXy -> log("raw xy dx=${e.dx} dy=${e.dy}")
+            null -> {}
+        }
+    }
+
+    /** Hands every diverted control back to the device. Called before the link is dropped. */
+    private suspend fun undivertAll() {
+        val d = currentDevice() ?: return
+        val bound = _state.value.bindings.keys.toList()
+        for (cid in bound) {
+            runCatching { ReprogControls.setReporting(d, cid, diverted = false) }
+                .onFailure { log("undivert 0x%04X failed: %s".format(cid, it.message)) }
+        }
+        if (bound.isNotEmpty()) log("undiverted ${bound.size} control(s)")
+        _state.update { it.copy(bindings = emptyMap()) }
+        tracker.reset()
+    }
+
     fun switchHost(host: Int) = runBusy {
         val d = currentDevice() ?: return@runBusy
         log("switching device to host ${host + 1}; it will disconnect from this phone")
+        undivertAll()
         Hosts.switchTo(d, host)
-        disconnect()
+        teardown()
     }
 
     private fun attach(ch: HidppChannel, label: String) {
@@ -263,14 +347,24 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
         traceJob = viewModelScope.launch {
             ch.trace.collect { (dir, frame) -> log("${if (dir == HidppChannel.Direction.OUT) "→" else "←"} $frame") }
         }
+        eventJob = viewModelScope.launch { ch.notifications.collect { onNotification(it) } }
         log("connected: $label")
     }
 
-    fun disconnect() {
+    /** Undiverts, then drops the link. Safe to call from a busy block; a plain button tap goes through [disconnect]. */
+    private suspend fun teardown() {
+        if (_state.value.bindings.isNotEmpty()) runCatching { undivertAll() }
         traceJob?.cancel(); traceJob = null
+        eventJob?.cancel(); eventJob = null
+        reprogFeatureIndex = null
         channel?.let { runCatching { it.close() }; log("disconnected") }
         channel = null
-        _state.update { it.copy(connection = null, settings = null, settingsDeviceIndex = null) }
+        _state.update { it.copy(connection = null, settings = null, settingsDeviceIndex = null, bindings = emptyMap()) }
+    }
+
+    fun disconnect() {
+        if (channel == null) return
+        viewModelScope.launch { teardown() }
     }
 
     fun logText(): String = _state.value.log.joinToString("\n")
@@ -284,7 +378,8 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
-        disconnect()
+        // Best effort: give diverted buttons back before the process goes away.
+        runBlocking { withTimeoutOrNull(1_500) { teardown() } }
         runCatching { getApplication<Application>().unregisterReceiver(usbPermissionReceiver) }
     }
 

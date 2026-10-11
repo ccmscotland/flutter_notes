@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">OpenOptions Spike</string>
+    <string name="accessibility_label">OpenOptions button actions</string>
+    <string name="accessibility_description">Lets buttons on your Logitech mouse or keyboard trigger Back, Home, Recent apps, notifications, screenshots and the lock screen. OpenOptions does not read screen content; it only performs the action you assigned to a button.</string>
 </resources>
