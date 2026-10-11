@@ -73,7 +73,10 @@ object Hosts {
         try {
             device.call(Features.CHANGE_HOST, 1, byteArrayOf(host.toByte()))
         } catch (_: dev.openoptions.hidpp.HidppTimeoutException) {
-            // expected: the link is gone
+            // expected: the link is gone before the reply
+        } catch (e: Exception) {
+            // a transport error after the write (GATT disconnect) is the same thing; a HID++ error is real
+            if (e is dev.openoptions.hidpp.Hidpp20Exception || e is dev.openoptions.hidpp.Hidpp10Exception) throw e
         }
     }
 }

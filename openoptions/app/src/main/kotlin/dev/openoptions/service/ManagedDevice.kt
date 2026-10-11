@@ -204,6 +204,15 @@ class ManagedDevice(
         }
     }
 
+    /** Sends the Easy-Switch change; the device drops the link immediately, which is success here. */
+    suspend fun switchHost(host: Int): Boolean = opMutex.withLock {
+        val d = hid ?: return false
+        log.add("${_state.value.name}: switching to host ${host + 1}")
+        runCatching { dev.openoptions.hidpp.features.Hosts.switchTo(d, host) }
+            .onFailure { log.add("${_state.value.name}: host switch refused: ${it.message}") }
+            .isSuccess
+    }
+
     /** Diverts or restores [cid] on the live device to match [action]. */
     suspend fun applyBinding(cid: Int, action: AndroidAction): Boolean = opMutex.withLock {
         val d = hid ?: return false

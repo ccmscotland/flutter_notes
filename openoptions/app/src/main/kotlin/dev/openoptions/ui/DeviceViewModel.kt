@@ -13,7 +13,6 @@ import dev.openoptions.hidpp.features.AdjustableDpi
 import dev.openoptions.hidpp.features.Backlight
 import dev.openoptions.hidpp.features.FnInversion
 import dev.openoptions.hidpp.features.HiResWheel
-import dev.openoptions.hidpp.features.Hosts
 import dev.openoptions.hidpp.features.SmartShift
 import dev.openoptions.hidpp.features.ThumbWheel
 import dev.openoptions.service.DeviceManager
@@ -77,7 +76,7 @@ class DeviceViewModel(app: Application, val address: String) : AndroidViewModel(
 
     override fun switchHost(host: Int) {
         viewModelScope.launch {
-            manager.device(address)?.withDevice("switch to host ${host + 1}") { Hosts.switchTo(it, host) }
+            manager.device(address)?.switchHost(host) ?: manager.log.add("not connected")
         }
     }
 
