@@ -45,6 +45,22 @@ class HidppFrameTest {
     }
 
     @Test
+    fun `body-only payload decodes with an implicit device index`() {
+        val body = HidppFrame.build(ReportType.LONG, 0xFF, 0x02, 0x0B, byteArrayOf(1, 2)).encode(withReportId = false, withDeviceIndex = false)
+        assertEquals(18, body.size)
+        assertNull(HidppFrame.decode(body))
+        val f = HidppFrame.decode(body, implicitDeviceIndex = 0xFF)!!
+        assertEquals(ReportType.LONG, f.type)
+        assertEquals(0xFF, f.deviceIndex)
+        assertEquals(0x02, f.subId)
+        assertEquals(0x0B, f.address)
+        assertArrayEquals(byteArrayOf(1, 2), f.params.copyOf(2))
+        val short = HidppFrame.decode(ByteArray(5) { it.toByte() }, implicitDeviceIndex = 0xFF)!!
+        assertEquals(ReportType.SHORT, short.type)
+        assertEquals(0x00, short.subId)
+    }
+
+    @Test
     fun `garbage does not decode`() {
         assertNull(HidppFrame.decode(byteArrayOf()))
         assertNull(HidppFrame.decode(byteArrayOf(0x10, 1, 2)))

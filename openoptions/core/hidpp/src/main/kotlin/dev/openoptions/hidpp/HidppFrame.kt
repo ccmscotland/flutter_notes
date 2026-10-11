@@ -49,11 +49,15 @@ class HidppFrame(val type: ReportType, val deviceIndex: Int, val body: ByteArray
     /** HID++ 2.0 software id (lower nibble of the address byte). */
     val softwareId: Int get() = address and 0x0F
 
-    fun encode(withReportId: Boolean = true): ByteArray {
-        val out = ByteArray(if (withReportId) type.length else type.length - 1)
+    /**
+     * Serialises the frame. USB wants the full report; BLE channels strip the report ID and, on a channel that
+     * addresses one device only, the device index as well.
+     */
+    fun encode(withReportId: Boolean = true, withDeviceIndex: Boolean = true): ByteArray {
+        val out = ByteArray(body.size + (if (withReportId) 1 else 0) + (if (withDeviceIndex) 1 else 0))
         var i = 0
         if (withReportId) out[i++] = type.id.toByte()
-        out[i++] = deviceIndex.toByte()
+        if (withDeviceIndex) out[i++] = deviceIndex.toByte()
         body.copyInto(out, i)
         return out
     }
@@ -72,17 +76,25 @@ class HidppFrame(val type: ReportType, val deviceIndex: Int, val body: ByteArray
         }
 
         /**
-         * Decodes a report that may or may not start with its report ID (BLE strips it).
-         * Returns null for anything that is not a well-formed HID++ report.
+         * Decodes a report that may or may not start with its report ID (BLE strips it). When [implicitDeviceIndex]
+         * is given, a payload that also lacks the device index byte (report body only) is accepted and attributed
+         * to that index. Returns null for anything that is not a well-formed HID++ report.
          */
-        fun decode(bytes: ByteArray): HidppFrame? {
+        fun decode(bytes: ByteArray, implicitDeviceIndex: Int? = null): HidppFrame? {
             if (bytes.isEmpty()) return null
             val withId = ReportType.fromId(bytes[0].toInt() and 0xFF)
             if (withId != null && bytes.size == withId.length) {
                 return HidppFrame(withId, bytes[1].toInt() and 0xFF, bytes.copyOfRange(2, bytes.size))
             }
-            val stripped = ReportType.fromStrippedLength(bytes.size) ?: return null
-            return HidppFrame(stripped, bytes[0].toInt() and 0xFF, bytes.copyOfRange(1, bytes.size))
+            ReportType.fromStrippedLength(bytes.size)?.let { stripped ->
+                return HidppFrame(stripped, bytes[0].toInt() and 0xFF, bytes.copyOfRange(1, bytes.size))
+            }
+            if (implicitDeviceIndex != null) {
+                ReportType.entries.firstOrNull { it.length - 2 == bytes.size }?.let { bodyOnly ->
+                    return HidppFrame(bodyOnly, implicitDeviceIndex, bytes.copyOf())
+                }
+            }
+            return null
         }
     }
 }

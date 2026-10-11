@@ -72,9 +72,16 @@ fun SpikeScreen(vm: SpikeViewModel, hasBluetoothPermission: Boolean, onRequestBl
                 } else {
                     Button(onClick = vm::refreshBonded, enabled = !state.busy) { Text("Refresh bonded devices") }
                     if (state.bondedDevices.isEmpty()) Text("No bonded devices. Pair the mouse or keyboard in system Bluetooth settings first.", style = MaterialTheme.typography.bodySmall)
+                    else Text("● = connected now. A device paired on several Easy-Switch channels is listed once per channel; only the live one answers.", style = MaterialTheme.typography.bodySmall)
                     state.bondedDevices.forEach { d ->
+                        val live = d.address in state.connectedAddresses
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("${d.name ?: "?"}  ${d.address}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                (if (live) "● " else "○ ") + "${d.name ?: "?"}  ${d.address}",
+                                Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (live) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                             Button(onClick = { vm.connectBle(d) }, enabled = !state.busy) { Text("Probe") }
                         }
                     }

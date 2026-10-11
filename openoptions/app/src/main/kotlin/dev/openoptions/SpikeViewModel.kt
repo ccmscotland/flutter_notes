@@ -5,6 +5,7 @@ import android.app.Application
 import android.app.PendingIntent
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -16,13 +17,18 @@ import androidx.core.content.IntentCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.openoptions.hidpp.DeviceProbe
+import dev.openoptions.hidpp.HidppFrame
+import dev.openoptions.hidpp.ReportType
+import dev.openoptions.hidpp.hex
 import dev.openoptions.hidpp.Hidpp10Exception
 import dev.openoptions.hidpp.HidppChannel
 import dev.openoptions.hidpp.HidppTimeoutException
 import dev.openoptions.hidpp.ProbeResult
 import dev.openoptions.transport.BleHidppTransport
 import dev.openoptions.transport.UsbHidppTransport
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -34,6 +40,8 @@ import java.util.Locale
 data class SpikeState(
     val usbDevices: List<UsbDevice> = emptyList(),
     val bondedDevices: List<BluetoothDevice> = emptyList(),
+    /** Addresses the system currently holds a GATT connection to (the live Easy-Switch slot of each device). */
+    val connectedAddresses: Set<String> = emptySet(),
     val connection: String? = null,
     val busy: Boolean = false,
     val results: List<ProbeResult> = emptyList(),
@@ -84,11 +92,14 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refreshBonded() {
-        val adapter = (getApplication<Application>().getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
-        val bonded = adapter?.bondedDevices?.toList().orEmpty()
-            .sortedBy { it.name ?: it.address }
-        _state.update { it.copy(bondedDevices = bonded) }
-        log("ble: ${bonded.size} bonded device(s)")
+        val manager = getApplication<Application>().getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        val connected = manager.getConnectedDevices(BluetoothProfile.GATT).map { it.address }.toSet()
+        // A device bonded on several Easy-Switch channels shows up once per channel address; only the
+        // channel currently in use answers, the rest fail with status 147 after a 10 s timeout.
+        val bonded = manager.adapter?.bondedDevices?.toList().orEmpty()
+            .sortedWith(compareBy({ it.address !in connected }, { it.name ?: it.address }))
+        _state.update { it.copy(bondedDevices = bonded, connectedAddresses = connected) }
+        log("ble: ${bonded.size} bonded device(s), ${connected.size} connected: ${connected.joinToString()}")
     }
 
     fun requestUsbPermissionAndConnect(device: UsbDevice) {
@@ -113,14 +124,57 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
         transport.connect()
         val ch = HidppChannel(transport, viewModelScope, timeoutMs = 4_000)
         attach(ch, transport.description)
-        // Framing experiment: first without the report ID byte, then with it.
-        for (withId in listOf(false, true)) {
-            transport.sendReportId = withId
-            log("ble probing with sendReportId=$withId")
-            val ok = probeIndices(listOf(HidppChannel.DIRECT_DEVICE_INDEX))
-            if (ok) { log("ble framing that works: sendReportId=$withId"); return@runBusy }
+        val found = bleFramingExperiment(transport)
+        if (found == null) {
+            log("ble: no framing produced a reply — copy this log and report it")
+            return@runBusy
         }
-        log("ble: no response with either framing — capture the log and report it")
+        transport.framing = found.first
+        transport.writeWithoutResponse = found.second
+        log("ble framing that works: ${found.first.label}, ${if (found.second) "write command" else "write request"}")
+        probeIndices(listOf(HidppChannel.DIRECT_DEVICE_INDEX))
+    }
+
+    /**
+     * Writes a Root.ping in every candidate layout until the device answers. Returns the (framing, write
+     * without response) pair that produced a reply, or null.
+     */
+    private suspend fun bleFramingExperiment(transport: BleHidppTransport): Pair<BleHidppTransport.Framing, Boolean>? {
+        runCatching { transport.readValue() }
+            .onSuccess { (status, value) -> log("ble read before writing: ${BleHidppTransport.gattStatusName(status)} ${value.hex()} (${value.size} bytes)") }
+            .onFailure { log("ble read before writing failed: ${it.message}") }
+        val candidates = buildList {
+            for (type in listOf(ReportType.LONG, ReportType.SHORT)) {
+                for (framing in BleHidppTransport.Framing.entries) {
+                    for (noResponse in listOf(false, true)) add(Triple(type, framing, noResponse))
+                }
+            }
+        }
+        for ((type, framing, noResponse) in candidates) {
+            val ping = HidppFrame.build(type, HidppChannel.DIRECT_DEVICE_INDEX, 0x00, 0x1A, byteArrayOf(0, 0, 0x5A))
+            val bytes = ping.encode(withReportId = framing.reportId, withDeviceIndex = framing.deviceIndex)
+            val mode = if (noResponse) "write command" else "write request"
+            val reply = CompletableDeferred<ByteArray>()
+            val listener = viewModelScope.launch { transport.rawIncoming.collect { if (!reply.isCompleted) reply.complete(it) } }
+            try {
+                val status = transport.writeRaw(bytes, noResponse)
+                log("ble try ${type.name} ${framing.label} via $mode: ${bytes.size} bytes → ${BleHidppTransport.gattStatusName(status)}")
+                if (status != 0) continue
+                val value = withTimeoutOrNull(1_500) { reply.await() }
+                if (value != null) {
+                    log("ble reply (${value.size} bytes): ${value.hex()}")
+                    return framing to noResponse
+                }
+                runCatching { transport.readValue() }
+                    .onSuccess { (st, v) -> log("ble read after write: ${BleHidppTransport.gattStatusName(st)} ${v.hex()}") }
+                log("ble no notification within 1.5 s")
+            } catch (e: Exception) {
+                log("ble try ${type.name} ${framing.label} via $mode failed: ${e.message}")
+            } finally {
+                listener.cancel()
+            }
+        }
+        return null
     }
 
     /** Probes each index; returns true when at least one answered. */
