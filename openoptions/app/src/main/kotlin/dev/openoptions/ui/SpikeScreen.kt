@@ -95,6 +95,8 @@ fun SpikeScreen(vm: SpikeViewModel, hasBluetoothPermission: Boolean, onRequestBl
                 }
             }
 
+            state.settings?.let { SettingsSection(vm, it, enabled = !state.busy) }
+
             Section("Log") {
                 TextButton(onClick = onCopyLog) { Text("Copy log to clipboard") }
                 Column(Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState())) {

@@ -20,7 +20,30 @@ class FakeHidppDevice(
         val legacyBattery: ByteArray? = null,   // BatteryStatus params
         val firmware: List<ByteArray> = emptyList(),
         val protocol: ProtocolVersion = ProtocolVersion(4, 5),
-    )
+    ) {
+        // Mutable settings state so set/read round-trips can be tested.
+        var dpi = 1000
+        var dpiList: ByteArray = byteArrayOf(0x00, 0x00, 0x64, 0xE0.toByte(), 0x32, 0x0F, 0xA0.toByte(), 0x00, 0x00) // 100, step 50, ..., 4000
+        var smartShiftMode = 2
+        var smartShiftThreshold = 20
+        var wheelMode = 0x02
+        var thumbDivert = 0
+        var thumbInvert = 0
+        var backlightEnabled = 1
+        var backlightOptions = 0x18 // mode 3 (manual)
+        var backlightLevel = 2
+        var backlightDurations = intArrayOf(12, 6, 60) // 5-second units
+        var fnInverted = IntArray(3)
+        var currentHost = 1
+        var hostNames = arrayOf("Desk PC", "", "Laptop")
+        val reporting = HashMap<Int, ByteArray>()
+        var lastChangeHost = -1
+        val controls = listOf(
+            intArrayOf(0x0050, 0x0038, 0x01, 0, 1, 0x01, 0x00),
+            intArrayOf(0x0053, 0x003A, 0x71, 0, 1, 0x01, 0x01),
+            intArrayOf(0x00C3, 0x00B2, 0x71, 0, 1, 0x01, 0x03),
+        )
+    }
 
     val devices = HashMap<Int, Device>()
     val written = ArrayList<HidppFrame>()
@@ -81,6 +104,79 @@ class FakeHidppDevice(
                 0 -> device.legacyBattery ?: return error20(req, Hidpp20Error.UNSUPPORTED)
                 else -> return error20(req, Hidpp20Error.INVALID_FUNCTION_ID)
             }
+            Features.ADJUSTABLE_DPI -> when (fn) {
+                0 -> byteArrayOf(1)
+                1 -> device.dpiList
+                2 -> byteArrayOf(0, (device.dpi shr 8).toByte(), device.dpi.toByte(), 0x03, 0xE8.toByte())
+                3 -> { device.dpi = (p[1].u() shl 8) or p[2].u(); p.copyOf(3) }
+                else -> return error20(req, Hidpp20Error.INVALID_FUNCTION_ID)
+            }
+            Features.SMART_SHIFT_ENHANCED -> when (fn) {
+                0 -> byteArrayOf(0x01, 0x14)
+                1 -> byteArrayOf(device.smartShiftMode.toByte(), device.smartShiftThreshold.toByte(), 0x14)
+                2 -> { if (p[0].u() != 0) device.smartShiftMode = p[0].u(); if (p[1].u() != 0) device.smartShiftThreshold = p[1].u(); p.copyOf(3) }
+                else -> return error20(req, Hidpp20Error.INVALID_FUNCTION_ID)
+            }
+            Features.HIRES_WHEEL -> when (fn) {
+                0 -> byteArrayOf(0x08, 0x0C, 24, 0)
+                1 -> byteArrayOf(device.wheelMode.toByte(), 0)
+                2 -> { device.wheelMode = p[0].u(); byteArrayOf(p[0], 0) }
+                else -> return error20(req, Hidpp20Error.INVALID_FUNCTION_ID)
+            }
+            Features.THUMB_WHEEL -> when (fn) {
+                1 -> byteArrayOf(device.thumbDivert.toByte(), device.thumbInvert.toByte())
+                2 -> { device.thumbDivert = p[0].u(); device.thumbInvert = p[1].u(); p.copyOf(2) }
+                else -> return error20(req, Hidpp20Error.INVALID_FUNCTION_ID)
+            }
+            Features.BACKLIGHT_V2 -> when (fn) {
+                0 -> byteArrayOf(
+                    device.backlightEnabled.toByte(), device.backlightOptions.toByte(), 0x38, 0x01, 0x00, device.backlightLevel.toByte(),
+                    device.backlightDurations[0].toByte(), (device.backlightDurations[0] shr 8).toByte(),
+                    device.backlightDurations[1].toByte(), (device.backlightDurations[1] shr 8).toByte(),
+                    device.backlightDurations[2].toByte(), (device.backlightDurations[2] shr 8).toByte(),
+                )
+                1 -> {
+                    device.backlightEnabled = p[0].u(); device.backlightOptions = p[1].u()
+                    if ((p[1].u() shr 3) and 3 == 3) device.backlightLevel = p[3].u()
+                    device.backlightDurations = intArrayOf(p[4].u() or (p[5].u() shl 8), p[6].u() or (p[7].u() shl 8), p[8].u() or (p[9].u() shl 8))
+                    p.copyOf(10)
+                }
+                2 -> byteArrayOf(4, device.backlightLevel.toByte(), 0, 0)
+                else -> return error20(req, Hidpp20Error.INVALID_FUNCTION_ID)
+            }
+            Features.K375S_FN_INVERSION -> when (fn) {
+                0 -> byteArrayOf(p[0], device.fnInverted[p[0].u()].toByte(), 0)
+                1 -> { device.fnInverted[p[0].u()] = p[1].u(); byteArrayOf(p[0], p[1]) }
+                else -> return error20(req, Hidpp20Error.INVALID_FUNCTION_ID)
+            }
+            Features.HOSTS_INFO -> when (fn) {
+                0 -> byteArrayOf(0x03, 0x00, 3, device.currentHost.toByte())
+                1 -> { val h = p[0].u(); val n = device.hostNames[h]; byteArrayOf(h.toByte(), if (n.isEmpty()) 0 else 1, 1, 0, n.length.toByte(), 24) }
+                3 -> { val h = p[0].u(); val off = p[1].u(); byteArrayOf(h.toByte(), off.toByte()) + device.hostNames[h].drop(off).take(14).toByteArray() }
+                4 -> { val h = p[0].u(); val off = p[1].u(); val chunk = String(p.copyOfRange(2, p.size)).trimEnd('\u0000'); device.hostNames[h] = device.hostNames[h].take(off) + chunk; byteArrayOf(h.toByte(), device.hostNames[h].length.toByte()) }
+                else -> return error20(req, Hidpp20Error.INVALID_FUNCTION_ID)
+            }
+            Features.CHANGE_HOST -> when (fn) {
+                0 -> byteArrayOf(3, device.currentHost.toByte(), 0)
+                1 -> { device.lastChangeHost = p[0].u(); return null } // device switches away, no reply
+                else -> return error20(req, Hidpp20Error.INVALID_FUNCTION_ID)
+            }
+            Features.REPROG_CONTROLS_V4 -> when (fn) {
+                0 -> byteArrayOf(device.controls.size.toByte())
+                1 -> { val c = device.controls[p[0].u()]; byteArrayOf((c[0] shr 8).toByte(), c[0].toByte(), (c[1] shr 8).toByte(), c[1].toByte(), c[2].toByte(), c[3].toByte(), c[4].toByte(), c[5].toByte(), c[6].toByte()) }
+                2 -> { val cid = (p[0].u() shl 8) or p[1].u(); val st = device.reporting[cid] ?: byteArrayOf(0, 0, 0); byteArrayOf(p[0], p[1]) + st }
+                3 -> {
+                    val cid = (p[0].u() shl 8) or p[1].u()
+                    val st = device.reporting[cid] ?: byteArrayOf(0, 0, 0)
+                    var flags = st[0].u()
+                    val f = p[2].u()
+                    for (bit in listOf(0x01, 0x04, 0x10)) if (f and (bit shl 1) != 0) flags = if (f and bit != 0) flags or bit else flags and bit.inv()
+                    val remap = if (p[3].u() == 0 && p[4].u() == 0) st.copyOfRange(1, 3) else byteArrayOf(p[3], p[4])
+                    device.reporting[cid] = byteArrayOf(flags.toByte()) + remap
+                    p.copyOf(5)
+                }
+                else -> return error20(req, Hidpp20Error.INVALID_FUNCTION_ID)
+            }
             else -> return error20(req, Hidpp20Error.INVALID_FUNCTION_ID)
         }
         val type = if (respondWithShort && out.size <= 3 && ReportType.SHORT in supportedReports) ReportType.SHORT else ReportType.LONG
@@ -113,7 +209,7 @@ class FakeHidppDevice(
             type = 0,
             features = listOf(
                 Features.FEATURE_SET, Features.DEVICE_FW_VERSION, Features.DEVICE_NAME, Features.BATTERY_STATUS,
-                Features.NEW_FN_INVERSION, Features.BACKLIGHT_V2,
+                Features.K375S_FN_INVERSION, Features.BACKLIGHT_V2, Features.HOSTS_INFO, Features.CHANGE_HOST, Features.REPROG_CONTROLS_V4,
             ),
             legacyBattery = byteArrayOf(50, 30, 0),
         )

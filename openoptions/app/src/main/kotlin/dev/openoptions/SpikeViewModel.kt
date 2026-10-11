@@ -17,6 +17,16 @@ import androidx.core.content.IntentCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.openoptions.hidpp.DeviceProbe
+import dev.openoptions.hidpp.DeviceSettings
+import dev.openoptions.hidpp.DeviceSettingsSnapshot
+import dev.openoptions.hidpp.Hidpp20Device
+import dev.openoptions.hidpp.features.AdjustableDpi
+import dev.openoptions.hidpp.features.Backlight
+import dev.openoptions.hidpp.features.FnInversion
+import dev.openoptions.hidpp.features.HiResWheel
+import dev.openoptions.hidpp.features.Hosts
+import dev.openoptions.hidpp.features.SmartShift
+import dev.openoptions.hidpp.features.ThumbWheel
 import dev.openoptions.hidpp.HidppFrame
 import dev.openoptions.hidpp.ReportType
 import dev.openoptions.hidpp.hex
@@ -45,6 +55,9 @@ data class SpikeState(
     val connection: String? = null,
     val busy: Boolean = false,
     val results: List<ProbeResult> = emptyList(),
+    /** Settings of the device most recently probed, keyed by its device index. */
+    val settingsDeviceIndex: Int? = null,
+    val settings: DeviceSettingsSnapshot? = null,
     val log: List<String> = emptyList(),
 )
 
@@ -193,6 +206,7 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
                 log("probe ${r.summary()}")
                 r.features.forEach { f -> log("    feature[${f.index}] ${f.name} v${f.version}${if (f.isHidden) " (hidden)" else ""}") }
                 _state.update { s -> s.copy(results = s.results.filter { it.deviceIndex != index } + r) }
+                if (!r.protocol.isHidpp10) readSettings(index)
             } catch (e: Hidpp10Exception) {
                 log("probe [%02X] %s".format(index, e.message))
             } catch (e: HidppTimeoutException) {
@@ -204,9 +218,48 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
         return any
     }
 
+    private fun currentDevice(index: Int? = null): Hidpp20Device? {
+        val ch = channel ?: return null
+        val i = index ?: _state.value.settingsDeviceIndex ?: return null
+        return Hidpp20Device(ch, i)
+    }
+
+    private suspend fun readSettings(index: Int) {
+        val d = currentDevice(index) ?: return
+        val snap = DeviceSettings.read(d) { section, e -> log("settings: $section failed: ${e.message}") }
+        _state.update { it.copy(settingsDeviceIndex = index, settings = snap) }
+        log("settings read: dpi=${snap.dpi?.current} smartShift=${snap.smartShift} wheel=${snap.wheel} thumb=${snap.thumbWheel} backlight=${snap.backlight} fn=${snap.fnInversion} hosts=${snap.hosts?.hosts?.map { h -> "${h.index}:${h.name ?: "-"}${if (h.isCurrent) "*" else ""}" }} controls=${snap.controls.size}")
+        snap.controls.forEach { c -> log("    control ${c.name} cid=0x%04X flags=0x%03X group=%d".format(c.cid, c.flags, c.group)) }
+    }
+
+    /** Runs a setter against the current device, then re-reads the settings so the UI shows what the device accepted. */
+    private fun applySetting(label: String, block: suspend (Hidpp20Device) -> Unit) = runBusy {
+        val d = currentDevice() ?: run { log("$label: not connected"); return@runBusy }
+        log("apply $label")
+        block(d)
+        readSettings(d.deviceIndex)
+    }
+
+    fun setDpi(dpi: Int) = applySetting("dpi=$dpi") { AdjustableDpi.set(it, dpi) }
+    fun setRatchet(ratchet: Boolean) = applySetting("ratchet=$ratchet") { SmartShift.set(it, ratchet = ratchet) }
+    fun setSmartShiftThreshold(t: Int) = applySetting("smartShiftThreshold=$t") { SmartShift.set(it, threshold = t) }
+    fun setWheelInverted(v: Boolean) = applySetting("wheelInverted=$v") { HiResWheel.set(it, inverted = v) }
+    fun setWheelHighRes(v: Boolean) = applySetting("wheelHighRes=$v") { HiResWheel.set(it, highResolution = v) }
+    fun setThumbInverted(v: Boolean) = applySetting("thumbInverted=$v") { ThumbWheel.set(it, inverted = v) }
+    fun setFnKeysDefault(v: Boolean) = applySetting("fKeysDefault=$v") { FnInversion.set(it, v) }
+    fun setBacklightEnabled(v: Boolean) = applySetting("backlightEnabled=$v") { Backlight.write(it, enabled = v) }
+    fun setBacklightMode(mode: Int) = applySetting("backlightMode=$mode") { Backlight.write(it, mode = mode) }
+    fun setBacklightLevel(level: Int) = applySetting("backlightLevel=$level") { Backlight.write(it, level = level) }
+    fun switchHost(host: Int) = runBusy {
+        val d = currentDevice() ?: return@runBusy
+        log("switching device to host ${host + 1}; it will disconnect from this phone")
+        Hosts.switchTo(d, host)
+        disconnect()
+    }
+
     private fun attach(ch: HidppChannel, label: String) {
         channel = ch
-        _state.update { it.copy(connection = label, results = emptyList()) }
+        _state.update { it.copy(connection = label, results = emptyList(), settings = null, settingsDeviceIndex = null) }
         traceJob = viewModelScope.launch {
             ch.trace.collect { (dir, frame) -> log("${if (dir == HidppChannel.Direction.OUT) "→" else "←"} $frame") }
         }
@@ -217,7 +270,7 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
         traceJob?.cancel(); traceJob = null
         channel?.let { runCatching { it.close() }; log("disconnected") }
         channel = null
-        _state.update { it.copy(connection = null) }
+        _state.update { it.copy(connection = null, settings = null, settingsDeviceIndex = null) }
     }
 
     fun logText(): String = _state.value.log.joinToString("\n")
