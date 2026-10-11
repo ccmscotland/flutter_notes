@@ -28,8 +28,9 @@ import java.util.UUID
  * Android refuses third-party access to the standard HID service (0x1812), so this is the only BLE path open to
  * an app. The device must already be bonded in system Bluetooth settings.
  *
- * Whether the characteristic value carries the report ID byte is one of the questions the spike answers:
- * [framing] and [writeWithoutResponse] select the outgoing layout; incoming values are decoded whatever their layout.
+ * Confirmed on MX Keys Mini (2026-10-11): the characteristic takes the 18-byte HID++ long-report body with no report
+ * ID and no device index, as an ATT Write Request, and answers with notifications of the same shape. Any other length
+ * is rejected with INVALID_ATTRIBUTE_LENGTH. [framing] and [writeWithoutResponse] stay configurable for diagnostics.
  */
 @SuppressLint("MissingPermission")
 class BleHidppTransport(
@@ -74,16 +75,13 @@ class BleHidppTransport(
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             log("ble connection state=$newState status=${gattStatusName(status)}")
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
-                if (!g.requestMtu(64)) g.discoverServices()
+                // No MTU request: the default ATT MTU of 23 carries the 18-byte HID++ body, and on the MX Anywhere 3S
+                // the onMtuChanged callback sometimes never fires, which stalled service discovery.
+                if (!g.discoverServices()) ready.completeExceptionally(IOException("discoverServices refused"))
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 ready.completeExceptionally(IOException("GATT disconnected (status $status)"))
                 writeAck?.completeExceptionally(IOException("GATT disconnected"))
             }
-        }
-
-        override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
-            log("ble mtu=$mtu status=$status")
-            g.discoverServices()
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {

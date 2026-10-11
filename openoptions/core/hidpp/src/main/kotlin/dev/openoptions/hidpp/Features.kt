@@ -13,16 +13,32 @@ object Features {
     const val RESET = 0x0020
     const val CRYPTO_ID = 0x0021
     const val DFU_CONTROL = 0x00C2
+    const val DFU_CONTROL_SIGNED = 0x00C3
     const val BATTERY_STATUS = 0x1000
     const val BATTERY_VOLTAGE = 0x1001
     const val UNIFIED_BATTERY = 0x1004
     const val CHARGING_CONTROL = 0x1010
+    const val PASSWORD_AUTHENTICATION = 0x1602
+    const val DEVICE_RESET = 0x1802
+    const val GPIO_ACCESS = 0x1803
+    const val OOB_STATE = 0x1805
+    const val CONFIGURABLE_DEVICE_PROPERTIES = 0x1806
     const val CHANGE_HOST = 0x1814
     const val HOSTS_INFO = 0x1815
+    const val BLE_PRO_PREPAIRING = 0x1816
+    const val POWER_MODES = 0x1830
+    const val BATTERY_LEVELS_CALIBRATION = 0x1861
+    const val RF_TEST_BLE = 0x1891
+    const val LED_TEST = 0x18A1
+    const val MONITOR_MODE = 0x18B0
     const val BACKLIGHT_V2 = 0x1982
     const val BACKLIGHT_V3 = 0x1983
     const val REPROG_CONTROLS_V4 = 0x1B04
     const val WIRELESS_DEVICE_STATUS = 0x1D4B
+    const val ENABLE_HIDDEN_FEATURES = 0x1E00
+    const val MANAGE_DEACTIVATABLE_FEATURES = 0x1E02
+    const val TDE_ACCESS_TO_NVM = 0x1EB0
+    const val ALS_CALIBRATION = 0x1A20
     const val SMART_SHIFT = 0x2110
     const val SMART_SHIFT_ENHANCED = 0x2111
     const val HIRES_WHEEL = 0x2121
@@ -32,6 +48,9 @@ object Features {
     const val FN_INVERSION = 0x40A0
     const val NEW_FN_INVERSION = 0x40A2
     const val K375S_FN_INVERSION = 0x40A3
+    const val LOCK_KEY_STATE = 0x4220
+    const val DISABLE_KEYS_BY_USAGE = 0x4521
+    const val MULTIPLATFORM = 0x4531
     const val KEYBOARD_LAYOUT_2 = 0x4540
     const val REPORT_RATE = 0x8060
     const val ONBOARD_PROFILES = 0x8100
@@ -48,6 +67,25 @@ object Features {
         RESET to "Reset",
         CRYPTO_ID to "CryptoId",
         DFU_CONTROL to "DfuControl",
+        DFU_CONTROL_SIGNED to "DfuControlSigned",
+        PASSWORD_AUTHENTICATION to "PasswordAuthentication",
+        DEVICE_RESET to "DeviceReset",
+        GPIO_ACCESS to "GpioAccess",
+        OOB_STATE to "OobState",
+        CONFIGURABLE_DEVICE_PROPERTIES to "ConfigurableDeviceProperties",
+        BLE_PRO_PREPAIRING to "BleProPrepairing",
+        POWER_MODES to "PowerModes",
+        BATTERY_LEVELS_CALIBRATION to "BatteryLevelsCalibration",
+        RF_TEST_BLE to "RfTestBle",
+        LED_TEST to "LedTest",
+        MONITOR_MODE to "MonitorMode",
+        ENABLE_HIDDEN_FEATURES to "EnableHiddenFeatures",
+        MANAGE_DEACTIVATABLE_FEATURES to "ManageDeactivatableFeatures",
+        TDE_ACCESS_TO_NVM to "TdeAccessToNvm",
+        ALS_CALIBRATION to "AlsCalibration",
+        LOCK_KEY_STATE to "LockKeyState",
+        DISABLE_KEYS_BY_USAGE to "DisableKeysByUsage",
+        MULTIPLATFORM to "MultiPlatform",
         BATTERY_STATUS to "BatteryStatus",
         BATTERY_VOLTAGE to "BatteryVoltage",
         UNIFIED_BATTERY to "UnifiedBattery",

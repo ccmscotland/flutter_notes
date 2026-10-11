@@ -124,6 +124,11 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
         transport.connect()
         val ch = HidppChannel(transport, viewModelScope, timeoutMs = 4_000)
         attach(ch, transport.description)
+        // Known-good layout (confirmed on MX Keys Mini): body only, write request.
+        transport.framing = BleHidppTransport.Framing.PAYLOAD_ONLY
+        transport.writeWithoutResponse = false
+        if (probeIndices(listOf(HidppChannel.DIRECT_DEVICE_INDEX))) return@runBusy
+        log("ble: default framing got no reply, running the framing experiment")
         val found = bleFramingExperiment(transport)
         if (found == null) {
             log("ble: no framing produced a reply — copy this log and report it")

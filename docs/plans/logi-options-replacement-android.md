@@ -232,7 +232,23 @@ Material 3, dynamic colour, phone and tablet layouts (list–detail on ≥ 600 d
 
 ---
 
-## 12. Reference Material
+## 12. Phase 0 Results (2026-10-11)
+
+Spike build from branch `ccr-c670a67e-k84qbf`, run on a phone with an MX Keys Mini and an MX Anywhere 3S bonded over Bluetooth.
+
+| Question | Answer |
+|----------|--------|
+| Does the vendor GATT service exist and can an app subscribe to it? | **Yes.** Service `00010000-0000-1000-8000-011F2000046D`, characteristic `00010001-…` with read, write, write-without-response and notify. CCCD write succeeds on a bonded device. |
+| What framing does it expect? | **The 18-byte HID++ long-report body only**, no report ID and no device index, sent as an ATT Write Request. 19- and 20-byte writes are rejected with GATT 0x0D `INVALID_ATTRIBUTE_LENGTH`. Replies arrive as 18-byte notifications of the same shape. This is the layout a Bolt receiver forwards to the device. |
+| Does the full probe work? | **Yes.** MX Keys Mini: HID++ 4.5, name, type, battery (0x1004), firmware `RBK73.04.B0016`, 32 features enumerated. About 65 ms per request. |
+| USB OTG | **Not yet tested** (no receiver attached during the runs). |
+| Pitfalls found | A device bonded on several Easy-Switch channels appears once per channel address; only the live one connects, the rest fail with status 147 after 10 s. `requestMtu` sometimes never calls back on the MX Anywhere 3S; the default MTU is enough, so the app no longer requests one. |
+
+Decision: BLE direct is a viable primary transport. Phase 1 proceeds with `BleHidppTransport` as designed, body-only framing hard-coded, and the framing experiment kept only as a diagnostics fallback.
+
+---
+
+## 13. Reference Material
 
 - Logitech HID++ 2.0 feature specifications (public PDFs via Logitech's developer drive, mirrored in the Solaar repository under `docs/`).
 - Solaar (`pwr-Solaar/Solaar`) — feature IDs, receiver registers, device database.
