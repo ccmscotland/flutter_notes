@@ -1,6 +1,8 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // The Kotlin Gradle plugin is already on the build classpath from the root `kotlin.jvm` declaration,
+    // so the Android flavour is applied by id without repeating the version.
+    id("org.jetbrains.kotlin.android")
     alias(libs.plugins.kotlin.compose)
 }
 
