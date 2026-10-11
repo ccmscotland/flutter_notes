@@ -246,6 +246,18 @@ Spike build from branch `ccr-c670a67e-k84qbf`, run on a phone with an MX Keys Mi
 
 Decision: BLE direct is a viable primary transport. Phase 1 proceeds with `BleHidppTransport` as designed, body-only framing hard-coded, and the framing experiment kept only as a diagnostics fallback.
 
+### Phase 1 and Phase 2 spike results (2026-10-12)
+
+| Check | Result |
+|-------|--------|
+| Settings writes round-trip | Backlight on/off on MX Keys Mini: write accepted, re-read matches. Backlight record decodes to 8 levels, automatic mode, 30 s / 300 s timeouts (Solaar's little-endian layout confirmed). |
+| Divert a key and receive its event | Mute key (0x00E7) on MX Keys Mini and middle (0x0052) and back (0x0053) buttons on MX Anywhere 3S: `setCidReporting` accepted, `getCidReporting` confirms diverted, every press arrives as a 0x1B04 divertedButtons notification followed by the empty-set release. |
+| Fire an Android action | Quick settings and Recent apps via `AccessibilityService.performGlobalAction` returned true; Volume up via `AudioManager` worked. Press-to-action latency about 5 ms after the notification. |
+| Undivert | "Device default" restores the button; device confirms `diverted=false`. |
+| Unsolicited events | A UnifiedBattery event arrived on its own while idle (95 %, charging), so the notification path also serves live battery. |
+
+Decision: every unknown in the plan is now resolved on real hardware. The remaining work is product engineering: app structure, persistence, background service, per-app profiles, remapping UI, receiver support via USB OTG (still untested for lack of a receiver).
+
 ---
 
 ## 13. Reference Material
