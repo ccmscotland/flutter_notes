@@ -31,3 +31,9 @@ android/app/src/main/res/raw/msal_config.json
 
 # macOS
 .DS_Store
+
+# OpenOptions (native Android project under openoptions/)
+openoptions/.gradle/
+openoptions/local.properties
+openoptions/**/build/
+openoptions/.kotlin/
